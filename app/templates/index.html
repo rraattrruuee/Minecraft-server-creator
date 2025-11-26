@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="fr">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Manager Ultimate</title>
+        <link rel="stylesheet" href="/static/style.css" />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        />
+    </head>
+    <body>
+        <aside>
+            <div class="brand">
+                <i class="fa-solid fa-server"></i> MANAGER PRO
+            </div>
+            <div id="srv-list" class="srv-list"></div>
+            <button class="new-btn" onclick="openModal()">
+                <i class="fa-solid fa-plus"></i> Créer
+            </button>
+        </aside>
+
+        <main>
+            <div
+                id="welcome"
+                style="margin: auto; text-align: center; color: #333"
+            >
+                <i
+                    class="fa-solid fa-cube"
+                    style="font-size: 3rem; margin-bottom: 20px"
+                ></i>
+                <h2>Sélectionnez un serveur</h2>
+            </div>
+
+            <div id="dashboard" style="display: none">
+                <div class="header">
+                    <div>
+                        <h1 id="srv-title">Serveur</h1>
+                        <span id="badge" class="badge offline">OFFLINE</span>
+                    </div>
+                    <div class="actions">
+                        <button class="icon-btn green" onclick="act('start')">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                        <button class="icon-btn red" onclick="act('stop')">
+                            <i class="fa-solid fa-stop"></i>
+                        </button>
+                        <button class="icon-btn" onclick="deleteSrv()">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tabs">
+                    <div class="tab active" onclick="nav('console')">
+                        Console
+                    </div>
+                    <div class="tab" onclick="nav('players')">Joueurs</div>
+                    <div class="tab" onclick="nav('plugins')">Plugins</div>
+                    <div class="tab" onclick="nav('config')">Configuration</div>
+                </div>
+
+                <div id="view-console" class="view active">
+                    <div id="logs"></div>
+                    <div class="input-group">
+                        <input
+                            id="cmd-in"
+                            placeholder="Commande (ex: /op)..."
+                            onkeydown="if(event.key=='Enter') sendCmd()"
+                        />
+                        <button class="btn-primary" onclick="sendCmd()">
+                            Envoyer
+                        </button>
+                    </div>
+                </div>
+
+                <div id="view-players" class="view">
+                    <div id="p-grid" class="player-grid"></div>
+
+                    <div id="p-detail" style="display: none">
+                        <button
+                            onclick="closeP()"
+                            style="
+                                margin-bottom: 20px;
+                                background: none;
+                                border: none;
+                                color: #aaa;
+                                cursor: pointer;
+                            "
+                        >
+                            ← Retour
+                        </button>
+                        <div class="profile-header">
+                            <img id="p-head" src="" />
+                            <h2 id="p-name">Pseudo</h2>
+                        </div>
+
+                        <div class="stats-container">
+                            <div class="stat-box">
+                                <small>Temps</small><b id="st-time"></b>
+                            </div>
+                            <div class="stat-box">
+                                <small>Kills</small><b id="st-kills"></b>
+                            </div>
+                            <div class="stat-box">
+                                <small>Morts</small><b id="st-deaths"></b>
+                            </div>
+                        </div>
+
+                        <h3>Inventaire (Fichier NBT)</h3>
+                        <div id="inv-grid" class="inv-grid"></div>
+
+                        <div class="actions-row">
+                            <button class="act-btn" onclick="pAct('op')">
+                                👑 OP
+                            </button>
+                            <button class="act-btn" onclick="pAct('gm_c')">
+                                🔨 Créatif
+                            </button>
+                            <button class="act-btn" onclick="pAct('gm_s')">
+                                ❤️ Survie
+                            </button>
+                            <button class="act-btn" onclick="pAct('clear')">
+                                🧹 Clear
+                            </button>
+                            <button
+                                class="act-btn danger"
+                                onclick="pAct('kick')"
+                            >
+                                Kick
+                            </button>
+                            <button
+                                class="act-btn danger"
+                                onclick="pAct('ban')"
+                            >
+                                Ban
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-plugins" class="view">
+                    <div class="input-group" style="margin-bottom: 20px">
+                        <input
+                            id="pl-search"
+                            placeholder="Chercher plugin..."
+                        />
+                        <button class="btn-primary" onclick="searchPl()">
+                            Chercher
+                        </button>
+                    </div>
+                    <div id="pl-results"></div>
+                </div>
+
+                <div id="view-config" class="view">
+                    <button
+                        class="btn-primary"
+                        style="width: 100%; margin-bottom: 20px"
+                        onclick="saveProps()"
+                    >
+                        Enregistrer les modifications
+                    </button>
+                    <div id="config-form" class="config-grid"></div>
+                </div>
+            </div>
+        </main>
+
+        <div id="modal" class="modal">
+            <div class="modal-content">
+                <h3>Nouveau Serveur</h3>
+                <input id="new-name" placeholder="Nom" />
+                <select id="new-ver">
+                    <option>Chargement...</option>
+                </select>
+                <div class="modal-btns">
+                    <button
+                        onclick="createSrv()"
+                        style="background: var(--primary); color: white"
+                    >
+                        Créer
+                    </button>
+                    <button
+                        onclick="document.getElementById('modal').style.display='none'"
+                    >
+                        Annuler
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script src="/static/app.js"></script>
+    </body>
+</html>
