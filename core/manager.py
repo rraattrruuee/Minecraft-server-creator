@@ -424,7 +424,7 @@ class ServerManager:
         
         with open(os.path.join(path, "server.properties"), "w", encoding="utf-8") as f:
             f.write("# Minecraft Server Properties\n")
-            f.write("motd=Serveur géré par MCPanel\n")
+            f.write("motd=Serveur géré par MCPanel et maintenu par louckreos et rraattrruuee\n")
             f.write("server-port=25565\n")
             f.write("max-players=20\n")
 
