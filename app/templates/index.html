@@ -1,193 +1,269 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
-    <head>
-        <meta charset="UTF-8" />
-        <title>Manager Ultimate</title>
-        <link rel="stylesheet" href="/static/style.css" />
-        <link
-            rel="stylesheet"
-            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-        />
-    </head>
-    <body>
-        <aside>
-            <div class="brand">
-                <i class="fa-solid fa-server"></i> MANAGER PRO
-            </div>
-            <div id="srv-list" class="srv-list"></div>
-            <button class="new-btn" onclick="openModal()">
-                <i class="fa-solid fa-plus"></i> Créer
-            </button>
-        </aside>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manager PRO - Minecraft Server Manager</title>
+    <link rel="stylesheet" href="/static/style_clean.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="logo">
+            <i class="fas fa-cubes"></i>
+            <h1>MANAGER PRO</h1>
+        </div>
+        
+        <div class="server-list" id="server-list">
+            <!-- Les serveurs seront ajoutés ici dynamiquement -->
+        </div>
+        
+        <button class="btn-create" onclick="openModal()">
+            <i class="fas fa-plus"></i>
+            <span>Nouveau Serveur</span>
+        </button>
+    </aside>
 
-        <main>
-            <div
-                id="welcome"
-                style="margin: auto; text-align: center; color: #333"
-            >
-                <i
-                    class="fa-solid fa-cube"
-                    style="font-size: 3rem; margin-bottom: 20px"
-                ></i>
-                <h2>Sélectionnez un serveur</h2>
-            </div>
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+        <!-- Écran d'accueil -->
+        <div id="welcome-screen" class="welcome-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center;">
+            <i class="fas fa-cube" style="font-size: 80px; margin-bottom: 32px; opacity: 0.3;"></i>
+            <h2 style="font-size: 32px; font-weight: 700; margin-bottom: 16px;">Bienvenue sur Manager PRO</h2>
+            <p style="color: var(--text-muted); font-size: 16px;">Sélectionnez un serveur ou créez-en un nouveau</p>
+        </div>
 
-            <div id="dashboard" style="display: none">
-                <div class="header">
-                    <div>
-                        <h1 id="srv-title">Serveur</h1>
-                        <span id="badge" class="badge offline">OFFLINE</span>
-                    </div>
-                    <div class="actions">
-                        <button class="icon-btn green" onclick="act('start')">
-                            <i class="fa-solid fa-play"></i>
-                        </button>
-                        <button class="icon-btn red" onclick="act('stop')">
-                            <i class="fa-solid fa-stop"></i>
-                        </button>
-                        <button class="icon-btn" onclick="deleteSrv()">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
+        <!-- Dashboard du serveur -->
+        <div id="dashboard" style="display: none; height: 100%; flex-direction: column;">
+            <!-- HEADER -->
+            <div class="header">
+                <div class="server-title">
+                    <h2 id="server-name">Nom du Serveur</h2>
+                    <div class="status-badge offline" id="status-badge">
+                        <span class="status-dot"></span>
+                        <span id="status-text">OFFLINE</span>
                     </div>
                 </div>
-
-                <div class="tabs">
-                    <div class="tab active" onclick="nav('console')">
-                        Console
-                    </div>
-                    <div class="tab" onclick="nav('players')">Joueurs</div>
-                    <div class="tab" onclick="nav('plugins')">Plugins</div>
-                    <div class="tab" onclick="nav('config')">Configuration</div>
+                
+                <div class="server-actions">
+                    <button class="action-btn start" id="btn-toggle" title="Démarrer/Arrêter">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="action-btn" id="btn-restart" onclick="serverAction('restart')" title="Redémarrer">
+                        <i class="fas fa-rotate-right"></i>
+                    </button>
+                    <button class="action-btn" onclick="backupServer()" title="Sauvegarder">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <button class="action-btn" onclick="deleteServer()" title="Supprimer">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </div>
+            </div>
 
+            <!-- TABS -->
+            <div class="tabs">
+                <button class="tab active" data-view="console" onclick="switchTab('console')">
+                    <i class="fas fa-terminal"></i> Console
+                </button>
+                <button class="tab" data-view="players" onclick="switchTab('players')">
+                    <i class="fas fa-users"></i> Joueurs
+                </button>
+                <button class="tab" data-view="plugins" onclick="switchTab('plugins')">
+                    <i class="fas fa-puzzle-piece"></i> Plugins
+                </button>
+                <button class="tab" data-view="config" onclick="switchTab('config')">
+                    <i class="fas fa-cog"></i> Configuration
+                </button>
+                <button class="tab" data-view="stats" onclick="switchTab('stats')">
+                    <i class="fas fa-chart-line"></i> Statistiques
+                </button>
+            </div>
+
+            <!-- CONTENT -->
+            <div class="content">
+                <!-- VIEW: CONSOLE -->
                 <div id="view-console" class="view active">
-                    <div id="logs"></div>
-                    <div class="input-group">
-                        <input
-                            id="cmd-in"
-                            placeholder="Commande (ex: /op)..."
-                            onkeydown="if(event.key=='Enter') sendCmd()"
-                        />
-                        <button class="btn-primary" onclick="sendCmd()">
-                            Envoyer
-                        </button>
+                    <!-- Stats en temps réel -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h4>CPU</h4>
+                            <div class="value" id="stat-cpu">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>RAM</h4>
+                            <div class="value" id="stat-ram">0 MB</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Joueurs</h4>
+                            <div class="value" id="stat-players">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>TPS</h4>
+                            <div class="value" id="stat-tps">--</div>
+                        </div>
                     </div>
-                </div>
 
-                <div id="view-players" class="view">
-                    <div id="p-grid" class="player-grid"></div>
-
-                    <div id="p-detail" style="display: none">
-                        <button
-                            onclick="closeP()"
-                            style="
-                                margin-bottom: 20px;
-                                background: none;
-                                border: none;
-                                color: #aaa;
-                                cursor: pointer;
-                            "
+                    <!-- Console -->
+                    <div class="console-container" id="logs"></div>
+                    
+                    <!-- Input commande -->
+                    <div style="display: flex; gap: 12px; margin-top: 20px;">
+                        <input 
+                            type="text" 
+                            id="cmd-input" 
+                            placeholder="Entrez une commande..." 
+                            style="flex: 1;"
+                            onkeydown="if(event.key==='Enter') sendCommand()"
                         >
-                            ← Retour
+                        <button class="btn-primary" onclick="sendCommand()">
+                            <i class="fas fa-paper-plane"></i> Envoyer
                         </button>
-                        <div class="profile-header">
-                            <img id="p-head" src="" />
-                            <h2 id="p-name">Pseudo</h2>
-                        </div>
-
-                        <div class="stats-container">
-                            <div class="stat-box">
-                                <small>Temps</small><b id="st-time"></b>
-                            </div>
-                            <div class="stat-box">
-                                <small>Kills</small><b id="st-kills"></b>
-                            </div>
-                            <div class="stat-box">
-                                <small>Morts</small><b id="st-deaths"></b>
-                            </div>
-                        </div>
-
-                        <h3>Inventaire (Fichier NBT)</h3>
-                        <div id="inv-grid" class="inv-grid"></div>
-
-                        <div class="actions-row">
-                            <button class="act-btn" onclick="pAct('op')">
-                                👑 OP
-                            </button>
-                            <button class="act-btn" onclick="pAct('gm_c')">
-                                🔨 Créatif
-                            </button>
-                            <button class="act-btn" onclick="pAct('gm_s')">
-                                ❤️ Survie
-                            </button>
-                            <button class="act-btn" onclick="pAct('clear')">
-                                🧹 Clear
-                            </button>
-                            <button
-                                class="act-btn danger"
-                                onclick="pAct('kick')"
-                            >
-                                Kick
-                            </button>
-                            <button
-                                class="act-btn danger"
-                                onclick="pAct('ban')"
-                            >
-                                Ban
-                            </button>
-                        </div>
                     </div>
                 </div>
 
+                <!-- VIEW: PLAYERS -->
+                <div id="view-players" class="view">
+                    <h3 style="margin-bottom: 24px; font-size: 24px;">Joueurs Connectés</h3>
+                    <div class="players-grid" id="players-grid">
+                        <!-- Joueurs ajoutés dynamiquement -->
+                    </div>
+                </div>
+
+                <!-- VIEW: PLUGINS -->
                 <div id="view-plugins" class="view">
-                    <div class="input-group" style="margin-bottom: 20px">
-                        <input
-                            id="pl-search"
-                            placeholder="Chercher plugin..."
-                        />
-                        <button class="btn-primary" onclick="searchPl()">
-                            Chercher
-                        </button>
+                    <div class="plugins-header">
+                        <h3 style="font-size: 24px;">Plugins</h3>
+                        <div class="search-bar">
+                            <input 
+                                type="text" 
+                                id="plugin-search" 
+                                placeholder="Rechercher un plugin..." 
+                                onkeydown="if(event.key==='Enter') searchPlugins()"
+                            >
+                            <i class="fas fa-search"></i>
+                        </div>
                     </div>
-                    <div id="pl-results"></div>
+
+                    <!-- Plugins installés -->
+                    <div style="margin-bottom: 40px;">
+                        <h4 style="margin-bottom: 16px; color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Plugins Installés</h4>
+                        <div class="plugins-grid" id="installed-plugins"></div>
+                    </div>
+
+                    <!-- Résultats de recherche -->
+                    <div>
+                        <h4 style="margin-bottom: 16px; color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Rechercher sur Hangar</h4>
+                        <div class="plugins-grid" id="search-results"></div>
+                    </div>
                 </div>
 
+                <!-- VIEW: CONFIG -->
                 <div id="view-config" class="view">
-                    <button
-                        class="btn-primary"
-                        style="width: 100%; margin-bottom: 20px"
-                        onclick="saveProps()"
-                    >
-                        Enregistrer les modifications
+                    <div style="margin-bottom: 24px;">
+                        <h3 style="font-size: 24px; margin-bottom: 8px;">Configuration du Serveur</h3>
+                        <p style="color: var(--text-muted);">Modifiez les propriétés de server.properties</p>
+                    </div>
+                    
+                    <button class="btn-primary" onclick="saveConfig()" style="margin-bottom: 32px;">
+                        <i class="fas fa-save"></i> Enregistrer les modifications
                     </button>
-                    <div id="config-form" class="config-grid"></div>
+                    
+                    <div id="config-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+                        <!-- Configuration chargée dynamiquement -->
+                    </div>
                 </div>
-            </div>
-        </main>
 
-        <div id="modal" class="modal">
-            <div class="modal-content">
-                <h3>Nouveau Serveur</h3>
-                <input id="new-name" placeholder="Nom" />
-                <select id="new-ver">
-                    <option>Chargement...</option>
-                </select>
-                <div class="modal-btns">
-                    <button
-                        onclick="createSrv()"
-                        style="background: var(--primary); color: white"
-                    >
-                        Créer
-                    </button>
-                    <button
-                        onclick="document.getElementById('modal').style.display='none'"
-                    >
-                        Annuler
-                    </button>
+                <!-- VIEW: STATS -->
+                <div id="view-stats" class="view">
+                    <h3 style="margin-bottom: 24px; font-size: 24px;">Statistiques du Serveur</h3>
+                    
+                    <div class="stats-grid" style="margin-bottom: 40px;">
+                        <div class="stat-card">
+                            <h4>Temps de fonctionnement</h4>
+                            <div class="value" id="stat-uptime">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Version</h4>
+                            <div class="value" id="stat-version">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Espace disque</h4>
+                            <div class="value" id="stat-disk">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Plugins</h4>
+                            <div class="value" id="stat-plugin-count">--</div>
+                        </div>
+                    </div>
+
+                    <!-- Sauvegardes -->
+                    <div>
+                        <h4 style="margin-bottom: 16px; color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Sauvegardes Disponibles</h4>
+                        <div id="backups-list"></div>
+                    </div>
                 </div>
             </div>
         </div>
+    </main>
 
-        <script src="/static/app.js"></script>
-    </body>
+    <!-- MODAL: CRÉER UN SERVEUR -->
+    <div id="create-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Nouveau Serveur</h2>
+                <button class="btn-close" onclick="closeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <form onsubmit="createServer(event)">
+                <div class="form-group">
+                    <label>Nom du serveur</label>
+                    <input type="text" id="server-name-input" placeholder="mon-serveur" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Version Minecraft</label>
+                    <select id="server-version" required>
+                        <option>Chargement...</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>RAM Min (MB)</label>
+                        <input type="number" id="ram-min" value="1024" min="512" step="256" required>
+                    </div>
+                    <div class="form-group">
+                        <label>RAM Max (MB)</label>
+                        <input type="number" id="ram-max" value="2048" min="1024" step="256" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Limite de stockage (GB) - Optionnel</label>
+                    <input type="number" id="storage-limit" placeholder="Illimité" min="1">
+                </div>
+
+                <div class="form-group">
+                    <label>Chemin de stockage - Optionnel</label>
+                    <input type="text" id="storage-path" placeholder="servers">
+                </div>
+
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Créer
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">
+                        Annuler
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/app_pro.js"></script>
+</body>
 </html>

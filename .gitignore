@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Serveurs Minecraft
+servers/
+!servers/.gitkeep
+
+# Data (sensitive)
+data/users.json
+data/sessions.json
+data/audit.log
+
+# Logs
+*.log
+latest.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Config local
+*.local
+.env

@@ -1,0 +1,103 @@
+/* Simplified MCPanel Dark Theme - Accessible and lightweight
+   Replaces overly bright/neon theme with a clean, dark UI.
+*/
+
+:root {
+    /* Base dark palette */
+    --bg-primary: #0f1724; /* main background */
+    --bg-secondary: #111827; /* sidebar */
+    --bg-card: #0b1220; /* card backgrounds */
+    --bg-muted: #0c1118;
+
+    --text-primary: #e6eef8;
+    --text-secondary: #b8c6d9;
+    --text-muted: #8a97a7;
+
+    --primary: #4f8fff;
+    --primary-contrast: #ffffff;
+    --success: #2dd4bf;
+    --danger: #ff6b6b;
+
+    --border: rgba(255,255,255,0.06);
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    /* Smaller animation footprint */
+    --transition-fast: 120ms;
+    --transition-smooth: 220ms;
+}
+
+/* Basic reset */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    display: flex; height: 100vh; overflow: hidden; line-height: 1.45;
+}
+
+.sidebar { width: 260px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 18px; display:flex; flex-direction:column; gap:12px; overflow:auto; }
+
+.logo h1 { font-size: 22px; font-weight:700; color:var(--text-primary); }
+
+.server-list { flex:1; overflow:auto; padding-right:6px; }
+
+.server-item { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px; margin-bottom:10px; cursor:pointer; }
+
+.btn-create-large, .btn-primary-large { padding:10px 14px; background:var(--primary); color:var(--primary-contrast); border-radius:var(--radius-md); border: none; cursor:pointer; }
+
+.main-content { flex:1; display:flex; flex-direction:column; overflow:auto; padding:20px; background:linear-gradient(180deg, var(--bg-primary), var(--bg-muted)); }
+
+.section { display:block; }
+
+.plugins-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap:14px; }
+
+.plugin-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; display:flex; justify-content:space-between; gap:12px; align-items:center; }
+
+.plugin-info h3 { font-size:14px; font-weight:600; color:var(--text-primary); margin:0 0 4px 0; }
+
+.btn-install, .btn-uninstall, .btn-primary, .btn-primary-sm { padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:8px; border:none; }
+
+.btn-install { background:var(--success); color:#032; }
+
+.btn-uninstall { background:transparent; color:var(--danger); border:1px solid rgba(255,100,100,0.12); }
+
+.btn-primary-sm, .btn-danger-sm { padding:8px 10px; font-size:13px; border-radius:6px; }
+
+.btn-primary-sm { background:var(--primary); color:var(--primary-contrast); }
+
+.plugin-card:hover { transform: translateY(-3px); box-shadow:0 6px 18px rgba(0,0,0,0.5); border-color: rgba(79,143,255,0.12); }
+
+#plugin-upload { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; pointer-events:auto; }
+
+/* Ensure interactive elements are on top of decorative overlays */
+.plugin-card button, .plugin-card .btn-install, .plugin-card .btn-uninstall, .btn-primary-sm { z-index: 2; position: relative; pointer-events: auto; }
+
+/* Keep decorative elements non-interactive */
+::before, ::after { pointer-events: none; }
+
+/* Accessibility helpers */
+.btn-primary, .btn-create-large, .btn-primary-large { background:var(--primary); color:var(--primary-contrast); border-radius:var(--radius-md); padding:10px 14px; border: none; }
+
+/* Reduce motion for sensitive users */
+@media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; }
+}
+
+/* Minor layout helpers kept for compatibility */
+.sidebar .logo, .sidebar .user-info { display:flex; gap:10px; align-items:center; }
+.server-item .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+
+/* Misc buttons */
+.btn-primary-sm i, .btn-primary i { font-size:13px; }
+
+/* Keep the body scrollable content visible */
+.content { padding: 18px; overflow:auto; }
+
+/* Visually hidden helper (for file inputs) */
+.visually-hidden { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important; overflow: hidden !important; opacity: 0 !important; pointer-events: auto !important; }
+
+/* Ensure interactive elements are always clickable */
+button, input, a { pointer-events: auto; }
