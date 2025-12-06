@@ -1,5 +1,45 @@
 [
   {
+    "id": "20251206155026555658",
+    "timestamp": "2025-12-06T15:50:26.555658",
+    "type": "alert",
+    "title": "High Memory",
+    "message": "RAM élevée: 96.8%",
+    "server": null,
+    "severity": "warning",
+    "read": false
+  },
+  {
+    "id": "20251206153837414565",
+    "timestamp": "2025-12-06T15:38:37.414565",
+    "type": "alert",
+    "title": "High Memory",
+    "message": "RAM élevée: 95.4%",
+    "server": null,
+    "severity": "warning",
+    "read": false
+  },
+  {
+    "id": "20251206153822085290",
+    "timestamp": "2025-12-06T15:38:22.085290",
+    "type": "alert",
+    "title": "High CPU",
+    "message": "CPU élevé: 94.7%",
+    "server": null,
+    "severity": "warning",
+    "read": false
+  },
+  {
+    "id": "20251206153816963459",
+    "timestamp": "2025-12-06T15:38:16.963459",
+    "type": "alert",
+    "title": "High Memory",
+    "message": "RAM élevée: 96.4%",
+    "server": null,
+    "severity": "warning",
+    "read": false
+  },
+  {
     "id": "20251128205927431064",
     "timestamp": "2025-11-28T20:59:27.431064",
     "type": "alert",

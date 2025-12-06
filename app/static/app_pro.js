@@ -4267,4 +4267,62 @@ if (document.readyState === 'loading') {
     initDragDrop();
 }
 
+// -----------------------------
+// Runtime error / rejection capture
+// Adds a small in-page overlay so users without a console can report errors
+// -----------------------------
+function _createJsErrorOverlay() {
+    if (document.getElementById('js-error-overlay')) return;
+    const container = document.createElement('div');
+    container.id = 'js-error-overlay';
+    document.body.appendChild(container);
+}
+
+function _showJsError(title, details) {
+    _createJsErrorOverlay();
+    const root = document.getElementById('js-error-overlay');
+    const card = document.createElement('div');
+    card.className = 'js-error-card';
+    card.innerHTML = `<h4>${title}</h4><pre>${details}</pre>`;
+
+    const actions = document.createElement('div');
+    actions.className = 'js-error-actions';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'js-error-btn';
+    copyBtn.textContent = 'Copier l\'erreur';
+    copyBtn.onclick = () => {
+        try { navigator.clipboard.writeText(title + '\n\n' + details); showToast('info', 'Erreur copiée dans le presse-papiers'); }
+        catch(e){ showToast('error', 'Impossible de copier'); }
+    };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'js-error-btn';
+    closeBtn.textContent = 'Fermer';
+    closeBtn.onclick = () => { card.remove(); if (!document.getElementById('js-error-overlay')?.childElementCount) { document.getElementById('js-error-overlay')?.remove(); } };
+
+    actions.appendChild(copyBtn);
+    actions.appendChild(closeBtn);
+    card.appendChild(actions);
+    root.appendChild(card);
+}
+
+window.addEventListener('error', function (ev) {
+    try {
+        const msg = ev.message || 'Erreur JS';
+        const src = (ev.filename ? `${ev.filename}:${ev.lineno || 0}:${ev.colno || 0}` : '');
+        const stack = ev.error && ev.error.stack ? ev.error.stack : `${msg}\n${src}`;
+        _showJsError('Erreur JavaScript', stack);
+        console.error('Captured error:', ev.error || ev);
+    } catch (e) { console.error('Error while showing error overlay', e); }
+});
+
+window.addEventListener('unhandledrejection', function (ev) {
+    try {
+        const reason = ev.reason ? (ev.reason.stack || JSON.stringify(ev.reason)) : 'Rejected promise';
+        _showJsError('Unhandled Promise Rejection', String(reason));
+        console.error('Unhandled rejection:', ev.reason);
+    } catch (e) { console.error('Error while showing rejection overlay', e); }
+});
+
 
