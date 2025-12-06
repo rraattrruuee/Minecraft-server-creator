@@ -16,6 +16,7 @@ import requests
 class ServerManager:
     def __init__(self, base_dir="servers"):
         self.base_dir = os.path.abspath(base_dir)
+        self.servers_dir = self.base_dir  # Alias pour compatibilité
         self.procs = {}
         self.log_files = {}  # Pour gérer les fichiers de log proprement
         self._versions_cache = None
@@ -966,7 +967,7 @@ class ServerManager:
     
     # Resource packs
     def get_resource_pack_config(self, server_name):
-        props = self.get_server_properties(server_name)
+        props = self.get_properties(server_name)
         return {
             "url": props.get("resource-pack", ""),
             "sha1": props.get("resource-pack-sha1", ""),
@@ -974,11 +975,11 @@ class ServerManager:
         }
     
     def set_resource_pack(self, server_name, url, sha1="", required=False):
-        props = self.get_server_properties(server_name)
+        props = self.get_properties(server_name)
         props["resource-pack"] = url
         props["resource-pack-sha1"] = sha1
         props["require-resource-pack"] = "true" if required else "false"
-        self.save_server_properties(server_name, props)
+        self.save_properties(server_name, props)
         return True
     
     # Datapacks
@@ -1113,7 +1114,7 @@ class ServerManager:
                 # Also check if another server uses it
                 in_use = False
                 for srv in self.list_servers():
-                    props = self.get_server_properties(srv["name"])
+                    props = self.get_properties(srv["name"])
                     if props.get("server-port") == str(port):
                         in_use = True
                         break

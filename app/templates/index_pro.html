@@ -16,17 +16,29 @@
             <h1>MCPanel</h1>
         </div>
         
+        <!-- Language Selector -->
+        <div class="language-selector">
+            <button class="lang-btn" id="current-lang" onclick="toggleLanguageDropdown()">
+                🇫🇷 FR
+            </button>
+            <div class="lang-dropdown" id="lang-dropdown">
+                <button class="lang-option" onclick="changeLanguage('fr')">🇫🇷 Français</button>
+                <button class="lang-option" onclick="changeLanguage('en')">🇬🇧 English</button>
+                <button class="lang-option" onclick="changeLanguage('es')">🇪🇸 Español</button>
+            </div>
+        </div>
+        
         <div class="user-info" id="user-info">
             <div class="user-avatar">
                 <i class="fas fa-user"></i>
             </div>
             <div class="user-details">
                 <span class="user-name" id="user-name">Admin</span>
-                <span class="user-role" id="user-role">Administrateur</span>
+                <span class="user-role" id="user-role" data-i18n="auth.admin">Administrateur</span>
             </div>
             <div class="user-menu">
-                <button onclick="openSettings()" title="Paramètres"><i class="fas fa-cog"></i></button>
-                <button onclick="logout()" title="Déconnexion"><i class="fas fa-sign-out-alt"></i></button>
+                <button onclick="openSettings()" data-i18n-title="nav.settings" title="Paramètres"><i class="fas fa-cog"></i></button>
+                <button onclick="logout()" data-i18n-title="auth.logout" title="Déconnexion"><i class="fas fa-sign-out-alt"></i></button>
             </div>
         </div>
         
@@ -183,7 +195,7 @@
             <div id="server-detail-view" style="display: none;">
                 <div class="server-header">
                     <button class="btn-back" onclick="showServersList()">
-                        <i class="fas fa-arrow-left"></i> Retour
+                        <i class="fas fa-arrow-left"></i> <span data-i18n="actions.back">Retour</span>
                     </button>
                     <div class="server-info">
                         <h2 id="detail-server-name">Serveur</h2>
@@ -194,48 +206,79 @@
                         <div class="server-address-display" id="server-address-display" style="display: none;">
                             <i class="fas fa-link"></i>
                             <span id="server-address-text">-</span>
-                            <button class="copy-btn-small" onclick="copyCurrentServerAddress()" title="Copier l'adresse">
+                            <button class="copy-btn-small" onclick="copyCurrentServerAddress()" data-i18n-title="actions.copy" title="Copier l'adresse">
                                 <i class="fas fa-copy"></i>
                             </button>
                         </div>
                     </div>
                     <div class="server-actions">
-                        <button class="action-btn start" id="btn-start" onclick="serverAction('start')">
+                        <button class="action-btn start" id="btn-start" onclick="serverAction('start')" data-i18n-title="actions.start" title="Démarrer">
                             <i class="fas fa-play"></i>
+                            <span class="action-label" data-i18n="actions.start">Démarrer</span>
                         </button>
-                        <button class="action-btn" id="btn-restart" onclick="serverAction('restart')">
+                        <button class="action-btn" id="btn-restart" onclick="serverAction('restart')" data-i18n-title="actions.restart" title="Redémarrer">
                             <i class="fas fa-rotate-right"></i>
+                            <span class="action-label" data-i18n="actions.restart">Redémarrer</span>
                         </button>
-                        <button class="action-btn stop" id="btn-stop" onclick="serverAction('stop')">
+                        <button class="action-btn stop" id="btn-stop" onclick="serverAction('stop')" data-i18n-title="actions.stop" title="Arrêter">
                             <i class="fas fa-stop"></i>
+                            <span class="action-label" data-i18n="actions.stop">Arrêter</span>
                         </button>
-                        <button class="action-btn" onclick="backupServer()">
+                        <button class="action-btn backup" onclick="backupServer()" data-i18n-title="actions.backup" title="Sauvegarder">
                             <i class="fas fa-download"></i>
+                            <span class="action-label" data-i18n="actions.backup">Backup</span>
                         </button>
-                        <button class="action-btn" id="btn-playit" onclick="startPlayitTunnel()" title="Share with Playit.gg">
-                            <i class="fas fa-share-alt"></i>
+                        <button class="action-btn tunnel" id="btn-tunnel" onclick="openTunnelModal()" data-i18n-title="actions.share" title="Partager le serveur (Tunnel)">
+                            <i class="fas fa-globe"></i>
+                            <span class="action-label" data-i18n="actions.share">Partager</span>
                         </button>
-                        <button class="action-btn danger" onclick="deleteServer()">
+                        <button class="action-btn settings" onclick="openServerSettings()" data-i18n-title="actions.config" title="Paramètres serveur">
+                            <i class="fas fa-cog"></i>
+                            <span class="action-label" data-i18n="actions.config">Config</span>
+                        </button>
+                        <button class="action-btn danger" onclick="deleteServer()" data-i18n-title="actions.delete" title="Supprimer">
                             <i class="fas fa-trash"></i>
+                            <span class="action-label" data-i18n="actions.delete">Supprimer</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Tunnel Status Bar -->
+                <div id="tunnel-status-bar" class="tunnel-status-bar" style="display:none;">
+                    <div class="tunnel-info">
+                        <i class="fas fa-globe tunnel-icon"></i>
+                        <span class="tunnel-label" data-i18n="tunnel.active">Tunnel actif:</span>
+                        <span class="tunnel-address" id="tunnel-address-display">-</span>
+                        <button class="btn-copy-small" onclick="copyTunnelAddress()" data-i18n-title="tunnel.copy_address" title="Copier l'adresse">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <div class="tunnel-actions">
+                        <span class="tunnel-provider" id="tunnel-provider-display">-</span>
+                        <button class="btn-tunnel-stop" onclick="stopTunnel()">
+                            <i class="fas fa-times"></i> <span data-i18n="tunnel.stop">Arrêter</span>
                         </button>
                     </div>
                 </div>
                 
                 <div class="tabs">
                     <button class="tab active" data-view="console" onclick="switchTab('console')">
-                        <i class="fas fa-terminal"></i> Console
+                        <i class="fas fa-terminal"></i> <span data-i18n="nav.console">Console</span>
                     </button>
                     <button class="tab" data-view="players" onclick="switchTab('players')">
-                        <i class="fas fa-users"></i> Joueurs
+                        <i class="fas fa-users"></i> <span data-i18n="nav.players">Joueurs</span>
                     </button>
                     <button class="tab" data-view="plugins" onclick="switchTab('plugins')">
-                        <i class="fas fa-puzzle-piece"></i> Plugins
+                        <i class="fas fa-puzzle-piece"></i> <span data-i18n="nav.plugins">Plugins</span>
                     </button>
                     <button class="tab" data-view="config" onclick="switchTab('config')">
-                        <i class="fas fa-cog"></i> Configuration
+                        <i class="fas fa-cog"></i> <span data-i18n="server.config">Configuration</span>
                     </button>
                     <button class="tab" data-view="backups" onclick="switchTab('backups')">
-                        <i class="fas fa-archive"></i> Sauvegardes
+                        <i class="fas fa-archive"></i> <span data-i18n="nav.backups">Sauvegardes</span>
+                    </button>
+                    <button class="tab" data-view="stats" onclick="switchTab('stats')">
+                        <i class="fas fa-chart-bar"></i> <span data-i18n="nav.statistics">Statistiques</span>
                     </button>
                 </div>
                 
@@ -251,17 +294,23 @@
                         
                         <div class="console-toolbar">
                             <div class="console-filters">
-                                <button class="filter-btn active" data-filter="all" onclick="filterLogs('all')">Tout</button>
+                                <button class="filter-btn active" data-filter="all" onclick="filterLogs('all')" data-i18n="common.all">Tout</button>
                                 <button class="filter-btn" data-filter="info" onclick="filterLogs('info')">Info</button>
                                 <button class="filter-btn" data-filter="warn" onclick="filterLogs('warn')">Warn</button>
                                 <button class="filter-btn" data-filter="error" onclick="filterLogs('error')">Error</button>
                             </div>
                             <div class="console-actions">
-                                <input type="text" id="log-search" placeholder="Rechercher..." class="search-input" oninput="searchLogs()">
-                                <button class="btn-icon" onclick="exportLogs()" title="Exporter">
+                                <input type="text" id="log-search" data-i18n-placeholder="actions.search" placeholder="Rechercher..." class="search-input" oninput="searchLogs()">
+                                <button class="btn-icon" onclick="exportLogs()" data-i18n-title="actions.download" title="Exporter">
                                     <i class="fas fa-download"></i>
                                 </button>
                             </div>
+                        </div>
+                        
+                        <!-- Commandes favorites -->
+                        <div class="favorite-commands-bar" id="favorite-commands-bar">
+                            <span class="fav-label"><i class="fas fa-star"></i></span>
+                            <div class="fav-commands-list" id="favorite-commands-list"></div>
                         </div>
                         
                         <div class="console-container" id="logs"></div>
@@ -269,6 +318,9 @@
                         <div class="console-input">
                             <span class="console-prompt">&gt;</span>
                             <input type="text" id="cmd-input" placeholder="Entrez une commande..." onkeydown="handleCommandInput(event)">
+                            <button class="btn-icon btn-fav" onclick="addCurrentCommandToFavorites()" title="Ajouter aux favoris">
+                                <i class="fas fa-star"></i>
+                            </button>
                             <button class="btn-send" onclick="sendCommand()">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
@@ -335,6 +387,54 @@
                             </div>
                         </div>
                         <div class="backups-list" id="backups-list"></div>
+                    </div>
+                    
+                    <!-- Stats - Nouvelle section -->
+                    <div id="view-stats" class="view">
+                        <div class="stats-header">
+                            <h3><i class="fas fa-chart-bar"></i> Statistiques du serveur</h3>
+                            <button class="btn-secondary" onclick="refreshServerStats()">
+                                <i class="fas fa-sync-alt"></i> Actualiser
+                            </button>
+                        </div>
+                        <div class="stats-dashboard">
+                            <div class="stats-row">
+                                <div class="stats-card">
+                                    <div class="stats-icon"><i class="fas fa-clock"></i></div>
+                                    <div class="stats-value" id="stat-uptime">-</div>
+                                    <div class="stats-label">Temps de fonctionnement</div>
+                                </div>
+                                <div class="stats-card">
+                                    <div class="stats-icon"><i class="fas fa-users"></i></div>
+                                    <div class="stats-value" id="stat-total-players">-</div>
+                                    <div class="stats-label">Joueurs uniques</div>
+                                </div>
+                                <div class="stats-card">
+                                    <div class="stats-icon"><i class="fas fa-cube"></i></div>
+                                    <div class="stats-value" id="stat-world-size">-</div>
+                                    <div class="stats-label">Taille du monde</div>
+                                </div>
+                                <div class="stats-card">
+                                    <div class="stats-icon"><i class="fas fa-puzzle-piece"></i></div>
+                                    <div class="stats-value" id="stat-plugins-count">-</div>
+                                    <div class="stats-label">Plugins installés</div>
+                                </div>
+                            </div>
+                            <div class="stats-charts">
+                                <div class="chart-container">
+                                    <h4>Performance (dernières 24h)</h4>
+                                    <canvas id="performance-chart"></canvas>
+                                </div>
+                                <div class="chart-container">
+                                    <h4>Joueurs connectés (dernières 24h)</h4>
+                                    <canvas id="players-chart"></canvas>
+                                </div>
+                            </div>
+                            <div class="stats-top-players">
+                                <h4><i class="fas fa-trophy"></i> Top Joueurs</h4>
+                                <div class="top-players-grid" id="top-players-grid"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -760,45 +860,58 @@
                 <button class="btn-close" onclick="closePlayerModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="player-modal-body">
-                <!-- Player Stats -->
+                <!-- Player Stats avec contrôles interactifs -->
+                <div class="player-stats-section">
+                    <h4><i class="fas fa-heart-pulse"></i> Statistiques vitales</h4>
+                    
+                    <!-- Barre de vie interactive -->
+                    <div class="vital-stat-row">
+                        <div class="vital-stat-label">
+                            <i class="fas fa-heart" style="color: #ff5555;"></i>
+                            <span>Vie</span>
+                        </div>
+                        <div class="vital-stat-content" id="player-health-container">
+                            <span id="player-health">20</span>/20
+                        </div>
+                    </div>
+                    
+                    <!-- Barre de faim interactive -->
+                    <div class="vital-stat-row">
+                        <div class="vital-stat-label">
+                            <i class="fas fa-drumstick-bite" style="color: #ffaa00;"></i>
+                            <span>Faim</span>
+                        </div>
+                        <div class="vital-stat-content" id="player-food-container">
+                            <span id="player-food">20</span>/20
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Autres stats -->
                 <div class="player-stats-grid">
                     <div class="player-stat-card">
-                        <i class="fas fa-heart"></i>
-                        <div class="stat-info">
-                            <span class="stat-value" id="player-health">20</span>
-                            <span class="stat-label">Santé</span>
-                        </div>
-                    </div>
-                    <div class="player-stat-card">
-                        <i class="fas fa-drumstick-bite"></i>
-                        <div class="stat-info">
-                            <span class="stat-value" id="player-food">20</span>
-                            <span class="stat-label">Faim</span>
-                        </div>
-                    </div>
-                    <div class="player-stat-card">
-                        <i class="fas fa-star"></i>
+                        <i class="fas fa-star" style="color: #55ff55;"></i>
                         <div class="stat-info">
                             <span class="stat-value" id="player-xp">0</span>
                             <span class="stat-label">Niveau XP</span>
                         </div>
                     </div>
                     <div class="player-stat-card">
-                        <i class="fas fa-map-marker-alt"></i>
+                        <i class="fas fa-map-marker-alt" style="color: #55ffff;"></i>
                         <div class="stat-info">
                             <span class="stat-value" id="player-pos">N/A</span>
                             <span class="stat-label">Position</span>
                         </div>
                     </div>
                     <div class="player-stat-card">
-                        <i class="fas fa-clock"></i>
+                        <i class="fas fa-clock" style="color: #ffff55;"></i>
                         <div class="stat-info">
                             <span class="stat-value" id="player-playtime">0h</span>
                             <span class="stat-label">Temps de jeu</span>
                         </div>
                     </div>
                     <div class="player-stat-card">
-                        <i class="fas fa-skull"></i>
+                        <i class="fas fa-skull" style="color: #aaaaaa;"></i>
                         <div class="stat-info">
                             <span class="stat-value" id="player-deaths">0</span>
                             <span class="stat-label">Morts</span>
@@ -849,10 +962,10 @@
 
                 <!-- Inventory Grid -->
                 <div id="inventory-view" class="inventory-container">
-                    <div class="inventory-grid" id="player-inventory"></div>
+                    <div id="player-inventory"></div>
                 </div>
                 <div id="enderchest-view" class="inventory-container" style="display:none">
-                    <div class="inventory-grid" id="player-enderchest"></div>
+                    <div id="player-enderchest"></div>
                 </div>
                 <div id="armor-view" class="inventory-container" style="display:none">
                     <div class="armor-display" id="player-armor"></div>
@@ -885,6 +998,113 @@
                     <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Enregistrer</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Tunnel Modal -->
+    <div id="tunnel-modal" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h2><i class="fas fa-network-wired"></i> <span data-i18n="tunnel.title">Tunnel de partage</span></h2>
+                <button class="btn-close" onclick="closeTunnelModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="tunnel-modal-body">
+                <!-- Tunnel Status -->
+                <div id="tunnel-status" class="tunnel-status">
+                    <div class="tunnel-status-icon">
+                        <i class="fas fa-circle-notch fa-spin"></i>
+                    </div>
+                    <div class="tunnel-status-info">
+                        <span class="tunnel-status-text" data-i18n="tunnel.inactive">Aucun tunnel actif</span>
+                        <span class="tunnel-provider-name"></span>
+                    </div>
+                </div>
+
+                <!-- Active Tunnel Address -->
+                <div id="tunnel-address-box" class="tunnel-address-box" style="display:none">
+                    <div class="tunnel-address-label">
+                        <i class="fas fa-link"></i> <span data-i18n="tunnel.copy_address">Adresse de connexion</span>
+                    </div>
+                    <div class="tunnel-address-value">
+                        <input type="text" id="tunnel-address" readonly>
+                        <button class="btn-copy" onclick="copyTunnelAddress()" data-i18n-title="actions.copy">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <p class="tunnel-hint" data-i18n="tunnel.description">Partagez cette adresse avec vos amis pour qu'ils rejoignent votre serveur !</p>
+                </div>
+
+                <!-- Provider Selection -->
+                <div class="tunnel-providers">
+                    <h4><i class="fas fa-server"></i> <span data-i18n="tunnel.select_provider">Choisir un fournisseur</span></h4>
+                    <div class="provider-grid">
+                        <div class="provider-card" onclick="startTunnel('localhost_run')">
+                            <div class="provider-icon">
+                                <i class="fas fa-rocket"></i>
+                            </div>
+                            <div class="provider-info">
+                                <span class="provider-name" data-i18n="tunnel.localhost_run">localhost.run</span>
+                                <span class="provider-desc">SSH tunnel rapide</span>
+                            </div>
+                            <div class="provider-badge">Recommandé</div>
+                        </div>
+                        <div class="provider-card" onclick="startTunnel('bore')">
+                            <div class="provider-icon">
+                                <i class="fas fa-bolt"></i>
+                            </div>
+                            <div class="provider-info">
+                                <span class="provider-name" data-i18n="tunnel.bore">Bore</span>
+                                <span class="provider-desc">TCP tunnel léger</span>
+                            </div>
+                        </div>
+                        <div class="provider-card" onclick="startTunnel('serveo')">
+                            <div class="provider-icon">
+                                <i class="fas fa-globe"></i>
+                            </div>
+                            <div class="provider-info">
+                                <span class="provider-name" data-i18n="tunnel.serveo">Serveo</span>
+                                <span class="provider-desc">SSH alternatif</span>
+                            </div>
+                        </div>
+                        <div class="provider-card" onclick="startTunnel('cloudflared')">
+                            <div class="provider-icon">
+                                <i class="fas fa-cloud"></i>
+                            </div>
+                            <div class="provider-info">
+                                <span class="provider-name" data-i18n="tunnel.cloudflared">Cloudflare</span>
+                                <span class="provider-desc">Tunnel sécurisé</span>
+                            </div>
+                        </div>
+                        <div class="provider-card" onclick="showManualTunnel()">
+                            <div class="provider-icon">
+                                <i class="fas fa-cog"></i>
+                            </div>
+                            <div class="provider-info">
+                                <span class="provider-name" data-i18n="tunnel.manual">Manuel</span>
+                                <span class="provider-desc" data-i18n="tunnel.manual_desc">Port forwarding</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manual Config -->
+                <div id="manual-tunnel-config" class="manual-config" style="display:none">
+                    <div class="form-group">
+                        <label data-i18n="tunnel.copy_address">Adresse publique</label>
+                        <input type="text" id="manual-address" placeholder="ex: votre-ip:25565">
+                    </div>
+                    <button class="btn-primary" onclick="setManualTunnel()">
+                        <i class="fas fa-check"></i> <span data-i18n="actions.confirm">Appliquer</span>
+                    </button>
+                </div>
+
+                <!-- Tunnel Actions -->
+                <div id="tunnel-actions" class="tunnel-actions" style="display:none">
+                    <button class="btn-danger" onclick="stopTunnel()">
+                        <i class="fas fa-stop"></i> <span data-i18n="tunnel.stop">Arrêter le tunnel</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 

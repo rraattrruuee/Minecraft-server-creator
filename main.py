@@ -3,8 +3,10 @@ import os
 import secrets
 import subprocess
 import sys
+import time
+from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response
 
 from core.auth import AuthManager, admin_required, login_required
 from core.i18n import i18n
@@ -15,7 +17,7 @@ from core.plugins import PluginManager
 from core.rcon import RconClient
 from core.scheduler import BackupScheduler
 from core.stats import PlayerStatsManager
-from core.playit import PlayitManager
+from core.tunnel import TunnelManager, get_tunnel_manager
 
 # Configuration encodage pour Windows
 if sys.platform == "win32":
@@ -41,8 +43,13 @@ auth_mgr = AuthManager()
 metrics_collector = MetricsCollector()
 metrics_collector.start()
 
-# Initialiser Playit.gg
-playit_mgr = PlayitManager(os.path.join(os.path.dirname(__file__), "servers"))
+# Initialiser le gestionnaire de tunnel (remplace Playit.gg)
+try:
+    tunnel_mgr = get_tunnel_manager(os.path.join(os.path.dirname(__file__), "servers"))
+    print("[INFO] Tunnel manager initialisé")
+except Exception as e:
+    print(f"[WARN] Erreur initialisation tunnel manager: {e}")
+    tunnel_mgr = None
 
 print("[INFO] Demarrage MCPanel...")
 
@@ -75,6 +82,25 @@ plugin_mgr = PluginManager(srv_mgr.base_dir)
 server_monitor = ServerMonitor(srv_mgr, metrics_collector)
 server_monitor.start()
 backup_scheduler = BackupScheduler(srv_mgr)
+
+
+# ===================== ROUTES PING/STATUS =====================
+
+@app.route("/api/ping")
+@login_required
+def api_ping():
+    """Ping pour vérifier la connexion"""
+    return jsonify({"status": "ok", "timestamp": time.time()})
+
+@app.route("/api/status")
+@login_required
+def api_status():
+    """Statut global de l'application"""
+    return jsonify({
+        "status": "ok",
+        "version": "2.0",
+        "timestamp": time.time()
+    })
 
 
 # ===================== SCHEDULER =====================
@@ -599,10 +625,122 @@ def config(name):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/server/<name>/stats")
+@login_required
+def server_stats(name):
+    """Retourne les statistiques détaillées du serveur"""
+    try:
+        status = srv_mgr.get_status(name)
+        disk_usage = srv_mgr.get_disk_usage(name) or {}
+        plugins = plugin_mgr.list_installed(name) or []
+        
+        # Calculer le temps de fonctionnement si online
+        uptime = "--"
+        if status.get("status") == "online" and name in srv_mgr.procs:
+            import time
+            start_time = getattr(srv_mgr, f"_start_time_{name}", None)
+            if start_time:
+                elapsed = int(time.time() - start_time)
+                hours, remainder = divmod(elapsed, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                uptime = f"{hours}h {minutes}m {seconds}s"
+        
+        # Obtenir la version depuis la config
+        config = srv_mgr.get_server_config(name) or {}
+        version = config.get("version", status.get("version", "--"))
+        
+        # plugins est une liste, pas un dict
+        plugin_count = len(plugins) if isinstance(plugins, list) else 0
+        
+        return jsonify({
+            "status": "success",
+            "uptime": uptime,
+            "version": version,
+            "disk_usage": f"{disk_usage.get('used_mb', 0):.1f} MB" if disk_usage else "--",
+            "plugin_count": plugin_count,
+            "players_online": status.get("players_online", 0),
+            "max_players": status.get("max_players", 20),
+            "tps": status.get("tps", "--"),
+            "cpu": status.get("cpu", 0),
+            "ram_mb": status.get("ram_mb", 0)
+        })
+    except Exception as e:
+        print(f"[ERROR] Erreur stats: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/server/<name>/players")
 @login_required
 def players(name):
     return jsonify(stats_mgr.get_all_players(name))
+
+
+@app.route("/api/server/<name>/online-players")
+@login_required
+def online_players(name):
+    """Récupère la liste des joueurs actuellement en ligne via RCON ou logs"""
+    try:
+        # Essayer via RCON d'abord
+        if name in srv_mgr.procs:
+            try:
+                from core.rcon import RconClient
+                config = srv_mgr.get_server_config(name) or {}
+                rcon_port = config.get('rcon_port', 25575)
+                rcon_password = config.get('rcon_password', '')
+                
+                if rcon_password:
+                    rcon = RconClient('localhost', rcon_port, rcon_password)
+                    success, msg = rcon.connect()
+                    if success:
+                        response, error = rcon.command('list')
+                        rcon.close()
+                        
+                        if response:
+                            # Parser la réponse "There are X of Y players online: player1, player2"
+                            import re
+                            match = re.search(r':\s*(.+)$', response)
+                            if match:
+                                player_names = [p.strip() for p in match.group(1).split(',') if p.strip()]
+                                return jsonify({"players": player_names, "count": len(player_names)})
+                            
+                            # Alternative: "There are 0 of Y players online"
+                            match = re.search(r'There are (\d+)', response)
+                            if match and int(match.group(1)) == 0:
+                                return jsonify({"players": [], "count": 0})
+            except Exception as e:
+                print(f"[WARN] RCON indisponible pour {name}: {e}")
+        
+        # Fallback: analyser les logs récents
+        log_file = os.path.join(srv_mgr.base_dir, name, "logs", "latest.log")
+        online_players = set()
+        
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()[-200:]  # Dernières 200 lignes
+                    
+                for line in lines:
+                    # Détecter les connexions
+                    if 'joined the game' in line or 'logged in with' in line:
+                        import re
+                        match = re.search(r'\]: (\w+) (joined|logged in)', line)
+                        if match:
+                            online_players.add(match.group(1))
+                    
+                    # Détecter les déconnexions
+                    if 'left the game' in line or 'lost connection' in line:
+                        import re
+                        match = re.search(r'\]: (\w+) (left|lost)', line)
+                        if match:
+                            online_players.discard(match.group(1))
+            except Exception as e:
+                print(f"[WARN] Erreur lecture logs {name}: {e}")
+        
+        return jsonify({"players": list(online_players), "count": len(online_players)})
+        
+    except Exception as e:
+        print(f"[ERROR] Erreur online-players: {e}")
+        return jsonify({"players": [], "count": 0, "error": str(e)})
 
 
 @app.route("/api/server/<name>/player/<uuid>")
@@ -1021,30 +1159,306 @@ def get_available_port():
     return jsonify({"status": "error", "message": "No port available"}), 500
 
 
-# ===================== PLAYIT.GG =====================
+# ===================== TUNNEL MANAGER (Remplace Playit.gg) =====================
 
+@app.route("/api/tunnel/providers")
+@login_required
+def tunnel_providers():
+    """Liste des providers de tunnel disponibles"""
+    try:
+        if tunnel_mgr is None:
+            raise Exception("Tunnel manager non initialisé")
+        return jsonify({"providers": tunnel_mgr.get_available_providers()})
+    except Exception as e:
+        # Providers par défaut en cas d'erreur
+        default_providers = [
+            {"id": "localhost.run", "name": "localhost.run", "description": "SSH gratuit", "status": "available"},
+            {"id": "serveo", "name": "Serveo", "description": "SSH gratuit", "status": "available"},
+            {"id": "bore", "name": "Bore", "description": "TCP léger", "status": "available"},
+            {"id": "manual", "name": "Port Manuel", "description": "Redirection manuelle", "status": "available"}
+        ]
+        return jsonify({"providers": default_providers, "error": str(e)})
+
+@app.route("/api/tunnel/start", methods=["POST"])
+@login_required
+def tunnel_start():
+    """Démarre un tunnel"""
+    try:
+        if tunnel_mgr is None:
+            return jsonify({"status": "error", "message": "Tunnel manager non initialisé"})
+        data = request.json or {}
+        port = data.get("port", 25565)
+        provider = data.get("provider", None)
+        result = tunnel_mgr.start(provider=provider, port=port)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route("/api/tunnel/stop", methods=["POST"])
+@login_required
+def tunnel_stop():
+    """Arrête le tunnel"""
+    try:
+        if tunnel_mgr is None:
+            return jsonify({"status": "error", "message": "Tunnel manager non initialisé"})
+        result = tunnel_mgr.stop()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route("/api/tunnel/status")
+@login_required
+def tunnel_status():
+    """Statut du tunnel"""
+    try:
+        if tunnel_mgr is None:
+            return jsonify({"status": "inactive", "running": False})
+        return jsonify(tunnel_mgr.get_status())
+    except Exception as e:
+        return jsonify({"status": "error", "running": False, "message": str(e)})
+
+@app.route("/api/tunnel/logs")
+@login_required
+def tunnel_logs():
+    """Logs du tunnel"""
+    try:
+        if tunnel_mgr is None:
+            return jsonify({"logs": []})
+        return jsonify({"logs": tunnel_mgr.get_logs()})
+    except Exception as e:
+        return jsonify({"logs": [], "error": str(e)})
+
+@app.route("/api/tunnel/test")
+@login_required
+def tunnel_test():
+    """Teste la connexion au port local"""
+    try:
+        if tunnel_mgr is None:
+            return jsonify({"status": "error", "message": "Tunnel manager non initialisé"})
+        return jsonify(tunnel_mgr.test_connection())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+# Routes de compatibilité avec l'ancien API Playit
 @app.route("/api/playit/start", methods=["POST"])
 @login_required
 def playit_start():
-    port = request.json.get("port", 25565) if request.json else 25565
-    result = playit_mgr.start(port)
-    return jsonify(result)
+    """Compatibilité avec l'ancien API"""
+    try:
+        data = request.json or {}
+        port = data.get("port", 25565)
+        result = tunnel_mgr.start(port=port)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route("/api/playit/stop", methods=["POST"])
 @login_required
 def playit_stop():
-    result = playit_mgr.stop()
-    return jsonify(result)
+    """Compatibilité avec l'ancien API"""
+    try:
+        result = tunnel_mgr.stop()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route("/api/playit/status")
 @login_required
 def playit_status():
-    return jsonify(playit_mgr.get_status())
+    """Compatibilité avec l'ancien API"""
+    try:
+        return jsonify(tunnel_mgr.get_status())
+    except Exception as e:
+        return jsonify({"status": "error", "running": False, "message": str(e)})
 
 @app.route("/api/playit/logs")
 @login_required
 def playit_logs():
-    return jsonify({"logs": playit_mgr.get_logs()})
+    """Compatibilité avec l'ancien API"""
+    try:
+        return jsonify({"logs": tunnel_mgr.get_logs()})
+    except Exception as e:
+        return jsonify({"logs": [], "error": str(e)})
+
+
+# ===================== NOUVELLES FONCTIONNALITES =====================
+
+@app.route("/api/system/info")
+@login_required
+def system_info():
+    """Informations système complètes"""
+    import psutil
+    import platform
+    
+    try:
+        cpu_count = psutil.cpu_count()
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage(os.path.abspath("servers"))
+        
+        return jsonify({
+            "status": "success",
+            "system": {
+                "os": platform.system(),
+                "os_version": platform.version()[:50],
+                "python_version": sys.version.split()[0],
+                "hostname": platform.node()
+            },
+            "cpu": {
+                "count": cpu_count,
+                "percent": cpu_percent
+            },
+            "memory": {
+                "total_gb": round(memory.total / (1024**3), 2),
+                "used_gb": round(memory.used / (1024**3), 2),
+                "available_gb": round(memory.available / (1024**3), 2),
+                "percent": memory.percent
+            },
+            "disk": {
+                "total_gb": round(disk.total / (1024**3), 2),
+                "used_gb": round(disk.used / (1024**3), 2),
+                "free_gb": round(disk.free / (1024**3), 2),
+                "percent": round(disk.used / disk.total * 100, 1)
+            },
+            "servers": {
+                "total": len(srv_mgr.list_servers()),
+                "running": len(srv_mgr.procs)
+            }
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/server/<name>/console/stream")
+@login_required
+def console_stream(name):
+    """Stream des logs en temps réel via SSE"""
+    def generate():
+        last_pos = 0
+        while True:
+            try:
+                logs = srv_mgr.get_logs(name, 50)
+                if logs:
+                    yield f"data: {json.dumps({'logs': logs})}\n\n"
+                time.sleep(2)
+            except GeneratorExit:
+                break
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                break
+    
+    return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route("/api/server/<name>/quick-action", methods=["POST"])
+@login_required
+def quick_action(name):
+    """Actions rapides sur le serveur"""
+    data = request.json or {}
+    action = data.get("action", "")
+    
+    quick_commands = {
+        "save": "save-all",
+        "weather_clear": "weather clear",
+        "weather_rain": "weather rain",
+        "weather_thunder": "weather thunder",
+        "time_day": "time set day",
+        "time_night": "time set night",
+        "difficulty_peaceful": "difficulty peaceful",
+        "difficulty_easy": "difficulty easy",
+        "difficulty_normal": "difficulty normal",
+        "difficulty_hard": "difficulty hard",
+        "say": f"say {data.get('message', 'Hello!')}",
+        "stop_warning": "say §c§lServeur arrêt dans 30 secondes!"
+    }
+    
+    if action in quick_commands:
+        try:
+            srv_mgr.send_command(name, quick_commands[action])
+            return jsonify({"status": "success", "message": f"Action '{action}' exécutée"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+    
+    return jsonify({"status": "error", "message": "Action inconnue"}), 400
+
+
+@app.route("/api/server/<name>/player/<player>/stats")
+@login_required
+def get_player_stats(name, player):
+    """Statistiques détaillées d'un joueur"""
+    try:
+        stats = stats_mgr.get_player_stats_by_name(name, player) if hasattr(stats_mgr, 'get_player_stats_by_name') else {}
+        return jsonify({
+            "status": "success",
+            "player": player,
+            "health": stats.get("health", 20),
+            "food": stats.get("food", 20),
+            "xp_level": stats.get("xp_level", 0),
+            "playtime": stats.get("playtime", 0),
+            "deaths": stats.get("deaths", 0),
+            "position": stats.get("position", "N/A"),
+            "gamemode": stats.get("gamemode", "survival")
+        })
+    except Exception as e:
+        # Retourner des valeurs par défaut si pas de stats
+        return jsonify({
+            "status": "success",
+            "player": player,
+            "health": 20,
+            "food": 20,
+            "xp_level": 0,
+            "playtime": 0,
+            "deaths": 0,
+            "position": "N/A",
+            "gamemode": "survival"
+        })
+
+
+@app.route("/api/server/<name>/performance")
+@login_required
+def server_performance(name):
+    """Métriques de performance détaillées"""
+    try:
+        status = srv_mgr.get_status(name)
+        metrics = metrics_collector.get_server_metrics(name, 30)
+        
+        # Calculer les moyennes
+        avg_cpu = sum(m.get("cpu", 0) for m in metrics) / len(metrics) if metrics else 0
+        avg_ram = sum(m.get("ram_mb", 0) for m in metrics) / len(metrics) if metrics else 0
+        
+        return jsonify({
+            "status": "success",
+            "current": {
+                "cpu": status.get("cpu", 0),
+                "ram_mb": status.get("ram_mb", 0),
+                "tps": status.get("tps", 20),
+                "players": status.get("players_online", 0)
+            },
+            "average": {
+                "cpu": round(avg_cpu, 1),
+                "ram_mb": round(avg_ram, 0)
+            },
+            "history": metrics[-10:] if metrics else []
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/health")
+def health_check():
+    """Endpoint de santé pour monitoring externe"""
+    from datetime import datetime
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "servers_running": len(srv_mgr.procs),
+        "version": "2.0.0"
+    })
+
+
+import json  # S'assurer que json est importé pour SSE
 
 
 if __name__ == "__main__":
@@ -1053,23 +1467,32 @@ if __name__ == "__main__":
     
     java_ok = check_java()
     
-    print("=" * 50)
-    print("MCPanel - Minecraft Server Manager")
-    print("=" * 50)
-    print(f"Python: {sys.version.split()[0]}")
-    print(f"Java: {'OK' if java_ok else 'NOT FOUND'}")
-    print(f"Servers: {os.path.abspath('servers')}")
-    print("=" * 50)
-    print("Running on http://127.0.0.1:5000")
-    print("=" * 50)
+    # Banner ASCII amélioré
+    print("""
+╔══════════════════════════════════════════════════════════════╗
+║                     ⚡ MCPanel Pro ⚡                        ║
+║            Minecraft Server Manager v2.0                     ║
+╠══════════════════════════════════════════════════════════════╣
+║  🐍 Python: {:<15}  ☕ Java: {:<18}     ║
+║  📁 Serveurs: {:<45}  ║
+║  🌐 URL: http://127.0.0.1:5000                               ║
+╚══════════════════════════════════════════════════════════════╝
+    """.format(
+        sys.version.split()[0],
+        'OK ✓' if java_ok else 'NON TROUVE ✗',
+        os.path.abspath('servers')[:45]
+    ))
     
     try:
         app.run(debug=False, host="0.0.0.0", port=5000, threaded=True)
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        print("\n[INFO] Arrêt en cours...")
         for name in list(srv_mgr.procs.keys()):
+            print(f"[INFO] Arrêt du serveur: {name}")
             srv_mgr.stop(name)
-        print("Done.")
+        metrics_collector.stop()
+        server_monitor.stop()
+        print("[INFO] MCPanel arrêté proprement.")
     except Exception as e:
-        print(f"Fatal error: {e}")
+        print(f"[FATAL] Erreur critique: {e}")
         sys.exit(1)

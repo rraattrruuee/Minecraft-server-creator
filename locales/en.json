@@ -1,7 +1,9 @@
 {
   "app": {
     "title": "MCPanel",
-    "subtitle": "Minecraft Server Manager"
+    "subtitle": "Minecraft Server Manager",
+    "loading": "Loading...",
+    "welcome": "Welcome"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -12,7 +14,9 @@
     "settings": "Settings",
     "users": "Users",
     "logs": "Logs",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "console": "Console",
+    "statistics": "Statistics"
   },
   "auth": {
     "login": "Login",
@@ -23,7 +27,51 @@
     "login_button": "Sign in",
     "login_error": "Invalid credentials",
     "login_success": "Login successful",
-    "secure_connection": "Secure connection"
+    "secure_connection": "Secure connection",
+    "admin": "Administrator"
+  },
+  "tunnel": {
+    "title": "Server Sharing",
+    "description": "Share your server with other players",
+    "select_provider": "Select a provider",
+    "start": "Start tunnel",
+    "stop": "Stop tunnel",
+    "active": "Tunnel active",
+    "inactive": "Tunnel inactive",
+    "ready": "Ready to share",
+    "connecting": "Connecting...",
+    "copy_address": "Copy address",
+    "address_copied": "Address copied!",
+    "provider": "Provider",
+    "free": "Free",
+    "no_install": "No installation required",
+    "manual": "Manual",
+    "manual_desc": "Use your own solution",
+    "localhost_run": "localhost.run",
+    "bore": "Bore",
+    "serveo": "Serveo",
+    "cloudflared": "Cloudflare Tunnel"
+  },
+  "actions": {
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "backup": "Backup",
+    "delete": "Delete",
+    "share": "Share",
+    "config": "Configure",
+    "refresh": "Refresh",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "confirm": "Confirm",
+    "copy": "Copy",
+    "edit": "Edit",
+    "back": "Back",
+    "new": "New",
+    "search": "Search",
+    "download": "Download",
+    "upload": "Upload"
   },
   "server": {
     "name": "Server name",

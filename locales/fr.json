@@ -1,7 +1,9 @@
 {
   "app": {
     "title": "MCPanel",
-    "subtitle": "Gestion de serveurs Minecraft"
+    "subtitle": "Gestion de serveurs Minecraft",
+    "loading": "Chargement...",
+    "welcome": "Bienvenue"
   },
   "nav": {
     "dashboard": "Tableau de bord",
@@ -12,7 +14,9 @@
     "settings": "Paramètres",
     "users": "Utilisateurs",
     "logs": "Logs",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "console": "Console",
+    "statistics": "Statistiques"
   },
   "auth": {
     "login": "Connexion",
@@ -23,7 +27,51 @@
     "login_button": "Se connecter",
     "login_error": "Identifiants incorrects",
     "login_success": "Connexion réussie",
-    "secure_connection": "Connexion sécurisée"
+    "secure_connection": "Connexion sécurisée",
+    "admin": "Administrateur"
+  },
+  "tunnel": {
+    "title": "Partage du serveur",
+    "description": "Partagez votre serveur avec d'autres joueurs",
+    "select_provider": "Choisir un fournisseur",
+    "start": "Démarrer le tunnel",
+    "stop": "Arrêter le tunnel",
+    "active": "Tunnel actif",
+    "inactive": "Tunnel inactif",
+    "ready": "Prêt à partager",
+    "connecting": "Connexion...",
+    "copy_address": "Copier l'adresse",
+    "address_copied": "Adresse copiée !",
+    "provider": "Fournisseur",
+    "free": "Gratuit",
+    "no_install": "Pas d'installation",
+    "manual": "Manuel",
+    "manual_desc": "Utilisez votre propre solution",
+    "localhost_run": "localhost.run",
+    "bore": "Bore",
+    "serveo": "Serveo",
+    "cloudflared": "Cloudflare Tunnel"
+  },
+  "actions": {
+    "start": "Démarrer",
+    "stop": "Arrêter",
+    "restart": "Redémarrer",
+    "backup": "Sauvegarder",
+    "delete": "Supprimer",
+    "share": "Partager",
+    "config": "Configurer",
+    "refresh": "Actualiser",
+    "save": "Sauvegarder",
+    "cancel": "Annuler",
+    "close": "Fermer",
+    "confirm": "Confirmer",
+    "copy": "Copier",
+    "edit": "Modifier",
+    "back": "Retour",
+    "new": "Nouveau",
+    "search": "Rechercher",
+    "download": "Télécharger",
+    "upload": "Téléverser"
   },
   "server": {
     "name": "Nom du serveur",
