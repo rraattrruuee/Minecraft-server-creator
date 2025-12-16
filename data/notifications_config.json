@@ -1,0 +1,13 @@
+{
+  "discord": {
+    "enabled": false,
+    "webhook_url": "",
+    "events": [
+      "server_start",
+      "server_stop",
+      "crash",
+      "backup",
+      "alert"
+    ]
+  }
+}

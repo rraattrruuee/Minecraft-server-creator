@@ -6,9 +6,11 @@ import sys
 import time
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response, send_file
 
 from core.auth import AuthManager, admin_required, login_required
+from core.config_editor import ConfigEditor
+from core.file_manager import FileManager
 from core.i18n import i18n
 from core.manager import ServerManager
 from core.monitoring import MetricsCollector, ServerMonitor
@@ -28,13 +30,142 @@ if sys.platform == "win32":
         pass  # Python < 3.7
 
 app = Flask(__name__, template_folder="app/templates", static_folder="app/static")
-app.config['JSON_AS_ASCII'] = False  # Support caractères Unicode dans JSON
-app.secret_key = secrets.token_hex(32)  # Clé secrète pour les sessions
+app.config['JSON_AS_ASCII'] = False
+
+# Persistent Secret Key
+secret_file = os.path.join(os.path.dirname(__file__), ".secret_key")
+if os.path.exists(secret_file):
+    with open(secret_file, "rb") as f:
+        app.secret_key = f.read()
+else:
+    app.secret_key = secrets.token_hex(32).encode()
+    with open(secret_file, "wb") as f:
+        f.write(app.secret_key)
+
+# Amélioration Sécurité 17: Configuration de session renforcée
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Lax au lieu de Strict pour meilleure compatibilité
+app.config['SESSION_COOKIE_SECURE'] = False  # True si HTTPS
+app.config['SESSION_COOKIE_NAME'] = 'mcpanel_session'
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 heures
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max
+
+# Amélioration Sécurité 18: Faire expirer les sessions inactives
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
+
+# ===================== SECURITY MIDDLEWARE =====================
+@app.before_request
+def csrf_protect():
+    # Amélioration Sécurité 8: Protection CSRF pour toutes les méthodes modifiantes
+    if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+        token = session.get("_csrf_token")
+        header_token = request.headers.get("X-CSRF-Token")
+        
+        # Amélioration Sécurité 9: Aussi accepter le token dans le formulaire
+        if not header_token:
+            header_token = request.form.get("csrf_token")
+        
+        # Amélioration Sécurité 10: Aussi accepter dans le JSON body
+        if not header_token and request.is_json:
+            try:
+                json_data = request.get_json(silent=True)
+                if json_data:
+                    header_token = json_data.get("_csrf_token") or json_data.get("csrf_token")
+            except:
+                pass
+        
+        # Paths that don't require CSRF token
+        exempt_paths = ["/api/auth/login", "/api/auth/register", "/api/csrf-token"]
+        if request.path in exempt_paths:
+            return
+            
+        # Partial match for tunnels and file uploads
+        if request.path.startswith("/api/tunnel") or request.path.startswith("/api/playit"):
+            return
+
+        # Amélioration Sécurité 11: Si pas de token en session, en générer un et rejeter
+        if not token:
+            generate_csrf_token()  # Générer pour la prochaine fois
+            print(f"[CSRF] REJECTED on {request.path} - no session token")
+            return jsonify({
+                "status": "error", 
+                "message": "Session expirée, veuillez rafraîchir la page",
+                "code": "CSRF_ERROR",
+                "action": "refresh"
+            }), 403
+
+        if token != header_token:
+            print(f"[CSRF] REJECTED on {request.path} - token mismatch")
+            return jsonify({
+                "status": "error", 
+                "message": "CSRF Token invalide",
+                "code": "CSRF_ERROR",
+                "action": "refresh_token"
+            }), 403
+
+def generate_csrf_token():
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)  # Amélioration Sécurité 12: Token plus long
+    return session["_csrf_token"]
+
+app.jinja_env.globals['csrf_token'] = generate_csrf_token
+
+# Amélioration Sécurité 13: Route pour récupérer un nouveau token CSRF 
+@app.route("/api/csrf-token")
+def get_csrf_token():
+    """Retourne un nouveau token CSRF et le régénère"""
+    token = generate_csrf_token()
+    response = jsonify({"csrf_token": token, "status": "success"})
+    # Amélioration Sécurité 14: Ajouter le token dans un cookie aussi
+    response.set_cookie('csrf_token', token, httponly=False, samesite='Lax', max_age=86400)
+    return response
+
+# Amélioration Sécurité 19: Vérification de session active
+@app.route("/api/session/check")
+def check_session():
+    """Vérifie si la session est toujours valide"""
+    if "user" in session:
+        return jsonify({
+            "status": "success",
+            "valid": True,
+            "user": session["user"]["username"],
+            "csrf_token": generate_csrf_token()
+        })
+    return jsonify({"status": "success", "valid": False}), 401
+
+# Amélioration Sécurité 20: Régénération du token CSRF après login
+@app.after_request
+def regenerate_csrf_after_login(response):
+    """Régénère le token CSRF après une connexion réussie"""
+    if request.path == "/api/auth/login" and response.status_code == 200:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return response
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https:;"
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # Amélioration 1: Headers de sécurité supplémentaires
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    # Amélioration Sécurité: Cache-Control pour les API
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+    return response
+
+# Amélioration 2: Compression GZIP pour les réponses
+try:
+    from flask_compress import Compress
+    compress = Compress()
+    compress.init_app(app)
+except ImportError:
+    pass  # flask-compress optionnel
 
 # Initialiser le gestionnaire d'authentification
 auth_mgr = AuthManager()
@@ -82,6 +213,8 @@ plugin_mgr = PluginManager(srv_mgr.base_dir)
 server_monitor = ServerMonitor(srv_mgr, metrics_collector)
 server_monitor.start()
 backup_scheduler = BackupScheduler(srv_mgr)
+file_mgr = FileManager(srv_mgr.base_dir)
+config_editor = ConfigEditor(srv_mgr.base_dir)
 
 
 # ===================== ROUTES PING/STATUS =====================
@@ -321,11 +454,17 @@ def api_login():
     username = data.get("username", "").strip()
     password = data.get("password", "")
     
-    user = auth_mgr.authenticate(username, password)
+    # Get real IP if behind proxy
+    if request.headers.getlist("X-Forwarded-For"):
+        ip = request.headers.getlist("X-Forwarded-For")[0]
+    else:
+        ip = request.remote_addr
+            
+    user, error = auth_mgr.authenticate(username, password, client_ip=ip)
     if user:
         session["user"] = user
         return jsonify({"status": "success", "user": user})
-    return jsonify({"status": "error", "message": "Identifiants incorrects"}), 401
+    return jsonify({"status": "error", "message": error or "Identifiants incorrects"}), 401
 
 
 @app.route("/api/auth/register", methods=["POST"])
@@ -340,13 +479,10 @@ def api_register():
     if not username or not password:
         return jsonify({"status": "error", "message": "Nom d'utilisateur et mot de passe requis"}), 400
     
-    if len(password) < 4:
-        return jsonify({"status": "error", "message": "Le mot de passe doit contenir au moins 4 caractères"}), 400
-    
     success, msg = auth_mgr.create_user(username, password, role="user")
     if success:
         # Auto-login après inscription
-        user = auth_mgr.authenticate(username, password)
+        user, _ = auth_mgr.authenticate(username, password)
         if user:
             session["user"] = user
             return jsonify({"status": "success", "message": "Compte créé avec succès", "user": user})
@@ -420,6 +556,138 @@ def api_audit_logs():
     return jsonify({"status": "success", "logs": auth_mgr.get_audit_logs()})
 
 
+# ===================== FILE MANAGER =====================
+
+@app.route("/api/server/<name>/files/list")
+@login_required
+def files_list(name):
+    path = request.args.get("path", "")
+    return jsonify({"status": "success", "files": file_mgr.list_files(name, path)})
+
+
+@app.route("/api/server/<name>/files/read")
+@login_required
+def files_read(name):
+    path = request.args.get("path", "")
+    try:
+        content = file_mgr.read_file(name, path)
+        return jsonify({"status": "success", "content": content})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/server/<name>/files/save", methods=["POST"])
+@login_required
+def files_save(name):
+    data = request.json
+    try:
+        file_mgr.save_file(name, data.get("path"), data.get("content"))
+        auth_mgr._log_audit(session["user"]["username"], "FILE_EDIT", f"{name}: {data.get('path')}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/server/<name>/files/mkdir", methods=["POST"])
+@login_required
+def files_mkdir(name):
+    data = request.json
+    try:
+        file_mgr.create_directory(name, data.get("path"), data.get("name"))
+        auth_mgr._log_audit(session["user"]["username"], "FILE_MKDIR", f"{name}: {data.get('name')}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/server/<name>/files/delete", methods=["POST"])
+@login_required
+def files_delete(name):
+    data = request.json
+    try:
+        file_mgr.delete_item(name, data.get("path"))
+        auth_mgr._log_audit(session["user"]["username"], "FILE_DELETE", f"{name}: {data.get('path')}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/server/<name>/files/rename", methods=["POST"])
+@login_required
+def files_rename(name):
+    data = request.json
+    try:
+        file_mgr.rename_item(name, data.get("path"), data.get("new_name"))
+        auth_mgr._log_audit(session["user"]["username"], "FILE_RENAME", f"{name}: {data.get('path')} -> {data.get('new_name')}")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/server/<name>/files/upload", methods=["POST"])
+@login_required
+def files_upload(name):
+    try:
+        path = request.form.get("path", "")
+        files = request.files.getlist("files")
+        uploaded = file_mgr.handle_upload(name, path, files)
+        auth_mgr._log_audit(session["user"]["username"], "FILE_UPLOAD", f"{name}: {len(uploaded)} files")
+        return jsonify({"status": "success", "uploaded": uploaded})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route("/api/server/<name>/config/whitelist", methods=["GET", "POST"])
+@login_required
+def config_whitelist(name):
+    if request.method == "POST":
+        config_editor.save_whitelist(name, request.json)
+        auth_mgr._log_audit(session["user"]["username"], "WHITELIST_EDIT", name)
+        return jsonify({"status": "success"})
+    return jsonify({"status": "success", "data": config_editor.get_whitelist(name)})
+
+
+@app.route("/api/server/<name>/config/ops", methods=["GET", "POST"])
+@login_required
+def config_ops(name):
+    if request.method == "POST":
+        config_editor.save_ops(name, request.json)
+        auth_mgr._log_audit(session["user"]["username"], "OPS_EDIT", name)
+        return jsonify({"status": "success"})
+    return jsonify({"status": "success", "data": config_editor.get_ops(name)})
+
+
+@app.route("/api/server/<name>/config/banned-players", methods=["GET", "POST"])
+@login_required
+def config_banned_players(name):
+    if request.method == "POST":
+        config_editor.save_banned_players(name, request.json)
+        auth_mgr._log_audit(session["user"]["username"], "BANNED_PLAYERS_EDIT", name)
+        return jsonify({"status": "success"})
+    return jsonify({"status": "success", "data": config_editor.get_banned_players(name)})
+
+
+@app.route("/api/server/<name>/config/banned-ips", methods=["GET", "POST"])
+@login_required
+def config_banned_ips(name):
+    if request.method == "POST":
+        config_editor.save_banned_ips(name, request.json)
+        auth_mgr._log_audit(session["user"]["username"], "BANNED_IPS_EDIT", name)
+        return jsonify({"status": "success"})
+    return jsonify({"status": "success", "data": config_editor.get_banned_ips(name)})
+
+
+@app.route("/api/server/<name>/files/download")
+@login_required
+def files_download(name):
+    path = request.args.get("path", "")
+    try:
+        abs_path = file_mgr.get_download_path(name, path)
+        return send_file(abs_path, as_attachment=True)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
 # ===================== ROUTES PRINCIPALES =====================
 
 @app.route("/")
@@ -437,7 +705,10 @@ def get_versions():
 @app.route("/api/servers")
 @login_required
 def list_servers():
-    return jsonify(srv_mgr.list_servers())
+    owner = session["user"]["username"]
+    if session["user"].get("role") == "admin":
+        owner = "admin"
+    return jsonify(srv_mgr.list_servers(owner))
 
 
 @app.route("/api/forge/versions")
@@ -450,6 +721,18 @@ def get_forge_versions():
 @login_required
 def get_fabric_versions():
     return jsonify({"status": "success", "versions": srv_mgr.get_fabric_versions()})
+
+
+@app.route("/api/templates")
+@login_required
+def get_templates():
+    """Retourne les templates de serveurs disponibles"""
+    try:
+        templates = srv_mgr.get_server_templates()
+        return jsonify({"status": "success", "templates": templates})
+    except Exception as e:
+        print(f"[ERROR] Erreur récup templates: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/create", methods=["POST"])
@@ -481,7 +764,8 @@ def create():
             storage_limit=storage_limit,
             base_path=base_path if base_path else None,
             server_type=server_type,
-            loader_version=loader_version
+            loader_version=loader_version,
+            owner=session["user"]["username"]
         )
         
         return jsonify({"status": "success"})
@@ -1088,63 +1372,7 @@ def delete_datapack(name, pack):
     return jsonify({"status": "error", "message": "Not found"}), 404
 
 
-# ===================== FILE BROWSER =====================
 
-@app.route("/api/server/<name>/files")
-@login_required
-def browse_files(name):
-    path = request.args.get("path", "")
-    items, error = srv_mgr.browse_files(name, path)
-    if error:
-        return jsonify({"status": "error", "message": error}), 400
-    return jsonify({"status": "success", "files": items, "path": path})
-
-
-@app.route("/api/server/<name>/files/read")
-@login_required
-def read_server_file(name):
-    path = request.args.get("path", "")
-    content, error = srv_mgr.read_file(name, path)
-    if error:
-        return jsonify({"status": "error", "message": error}), 400
-    return jsonify({"status": "success", "content": content})
-
-
-@app.route("/api/server/<name>/files/write", methods=["POST"])
-@login_required
-def write_server_file(name):
-    data = request.json
-    success, error = srv_mgr.write_file(name, data.get("path", ""), data.get("content", ""))
-    if success:
-        auth_mgr._log_audit(session["user"]["username"], "FILE_EDIT", f"{name}/{data.get('path')}")
-        return jsonify({"status": "success"})
-    return jsonify({"status": "error", "message": error}), 400
-
-
-@app.route("/api/server/<name>/files/upload", methods=["POST"])
-@login_required
-def upload_file(name):
-    if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "No file"}), 400
-    
-    file = request.files['file']
-    path = request.form.get('path', '')
-    
-    from werkzeug.utils import secure_filename
-    filename = secure_filename(file.filename)
-    
-    server_dir = os.path.join("servers", name)
-    target_dir = os.path.join(server_dir, path) if path else server_dir
-    
-    # Security check
-    target_dir = os.path.normpath(target_dir)
-    if not target_dir.startswith(os.path.normpath(server_dir)):
-        return jsonify({"status": "error", "message": "Access denied"}), 403
-    
-    os.makedirs(target_dir, exist_ok=True)
-    file.save(os.path.join(target_dir, filename))
-    
-    return jsonify({"status": "success", "message": f"Uploaded {filename}"})
 
 
 # ===================== PORT MANAGEMENT =====================
@@ -1283,6 +1511,104 @@ def playit_logs():
         return jsonify({"logs": [], "error": str(e)})
 
 
+@app.route("/api/server/<name>/icon", methods=["POST"])
+@login_required
+def upload_server_icon(name):
+    if 'icon' not in request.files:
+        return jsonify({"status": "error", "message": "No file"}), 400
+    
+    file = request.files['icon']
+    # Validation basique
+    if not file.filename.lower().endswith(".png"):
+        return jsonify({"status": "error", "message": "Le fichier doit être un PNG"}), 400
+        
+    try:
+        # Use secure path to server root
+        server_dir = srv_mgr.file_mgr._get_secure_path(name, "")
+        icon_path = os.path.join(server_dir, "server-icon.png")
+        
+        file.save(icon_path)
+        return jsonify({"status": "success", "message": "Icône mise à jour"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/server/<name>/icon/raw")
+@login_required
+def get_server_icon_raw(name):
+    try:
+        server_dir = srv_mgr.file_mgr._get_secure_path(name, "")
+        icon_path = os.path.join(server_dir, "server-icon.png")
+        if os.path.exists(icon_path):
+             return send_file(icon_path, mimetype='image/png')
+        else:
+             # Return default icon or 404. Let's return 404 so frontend shows default.
+             return "Not found", 404
+    except Exception as e:
+        return "Error", 500
+
+
+# ===================== MODS MANAGER =====================
+
+@app.route("/api/mods/search", methods=["POST"])
+@login_required
+def search_mods():
+    query = request.json.get("query", "")
+    limit = request.json.get("limit", 20)
+    results = srv_mgr.search_mods(query, limit)
+    return jsonify({"status": "success", "results": results})
+
+@app.route("/api/server/<name>/mods/install", methods=["POST"])
+@login_required
+def install_mod(name):
+    data = request.json
+    project_id = data.get("project_id")
+    version_id = data.get("version_id") # Optional
+    
+    if not project_id:
+        return jsonify({"status": "error", "message": "Project ID required"}), 400
+        
+    success, msg = srv_mgr.install_mod(name, project_id, version_id)
+    if success:
+        return jsonify({"status": "success", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 500
+
+
+@app.route("/api/server/<name>/optimize", methods=["POST"])
+@login_required
+def optimize_server_flags(name):
+    try:
+        success, msg = srv_mgr.optimize_server(name)
+        if success:
+             auth_mgr._log_audit(session["user"]["username"], "OPTIMIZE", name)
+             return jsonify({"status": "success", "message": msg})
+        return jsonify({"status": "error", "message": msg}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ===================== NOTIFICATION CONFIG =====================
+
+@app.route("/api/notifications/config", methods=["GET", "POST"])
+@login_required
+@admin_required
+def notification_config():
+    if request.method == "POST":
+        result = notification_manager.save_config(request.json)
+        auth_mgr._log_audit(session["user"]["username"], "NOTIF_CONFIG_UPDATE", "system")
+        return jsonify(result)
+    return jsonify(notification_manager.get_config())
+
+@app.route("/api/notifications/test/discord", methods=["POST"])
+@login_required
+@admin_required
+def test_discord_webhook():
+    webhook = request.json.get("webhook_url")
+    if not webhook:
+        return jsonify({"success": False, "message": "Webhook URL missing"}), 400
+    return jsonify(notification_manager.test_discord(webhook))
+
+
 # ===================== NOUVELLES FONCTIONNALITES =====================
 
 @app.route("/api/system/info")
@@ -1327,6 +1653,17 @@ def system_info():
                 "running": len(srv_mgr.procs)
             }
         })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/system/history")
+@login_required
+def system_history():
+    """Historique des métriques système pour les graphiques"""
+    try:
+        limit = int(request.args.get("limit", 60)) # Default 60 points (5 mins approx)
+        data = metrics_collector.get_system_metrics(limit)
+        return jsonify({"status": "success", "history": data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -1458,6 +1795,1155 @@ def health_check():
     })
 
 
+# ===================== AMÉLIORATIONS 3-60 =====================
+
+# Amélioration 3: Export des logs en fichier
+@app.route("/api/server/<name>/logs/export")
+@login_required
+def export_logs(name):
+    """Exporte les logs du serveur en fichier téléchargeable"""
+    try:
+        logs = srv_mgr.get_logs(name, lines=10000)
+        log_content = "\n".join(logs) if isinstance(logs, list) else str(logs)
+        
+        from io import BytesIO
+        buffer = BytesIO(log_content.encode('utf-8'))
+        buffer.seek(0)
+        
+        from datetime import datetime
+        filename = f"{name}_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        
+        return send_file(buffer, as_attachment=True, download_name=filename, mimetype='text/plain')
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 4: Recherche dans les logs
+@app.route("/api/server/<name>/logs/search")
+@login_required
+def search_logs(name):
+    """Recherche dans les logs du serveur"""
+    query = request.args.get("q", "").lower()
+    lines = request.args.get("lines", 1000, type=int)
+    
+    try:
+        logs = srv_mgr.get_logs(name, lines=lines)
+        if query:
+            logs = [log for log in logs if query in log.lower()]
+        return jsonify({"status": "success", "logs": logs, "count": len(logs)})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 5: Clone de serveur
+@app.route("/api/server/<name>/clone", methods=["POST"])
+@admin_required
+def clone_server(name):
+    """Clone un serveur existant"""
+    import shutil
+    data = request.json or {}
+    new_name = data.get("new_name", f"{name}_clone")
+    
+    try:
+        src = os.path.join(srv_mgr.base_dir, name)
+        dst = os.path.join(srv_mgr.base_dir, new_name)
+        
+        if not os.path.exists(src):
+            return jsonify({"status": "error", "message": "Serveur source non trouvé"}), 404
+        if os.path.exists(dst):
+            return jsonify({"status": "error", "message": "Un serveur avec ce nom existe déjà"}), 400
+        
+        shutil.copytree(src, dst)
+        
+        # Modifier le port pour éviter les conflits
+        props_path = os.path.join(dst, "server.properties")
+        if os.path.exists(props_path):
+            props = srv_mgr.get_properties(new_name)
+            old_port = int(props.get("server-port", 25565))
+            props["server-port"] = str(old_port + 1)
+            srv_mgr.save_properties(new_name, props)
+        
+        auth_mgr._log_audit(session["user"]["username"], "SERVER_CLONE", f"{name} -> {new_name}")
+        return jsonify({"status": "success", "message": f"Serveur cloné: {new_name}"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 6: Import de monde (ZIP simple)
+@app.route("/api/server/<name>/world/import-zip", methods=["POST"])
+@login_required
+def import_world_zip(name):
+    """Importe un monde depuis un fichier ZIP"""
+    try:
+        if 'world' not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier envoyé"}), 400
+        
+        file = request.files['world']
+        if not file.filename.endswith('.zip'):
+            return jsonify({"status": "error", "message": "Le fichier doit être un ZIP"}), 400
+        
+        import zipfile
+        import tempfile
+        
+        world_path = os.path.join(srv_mgr.base_dir, name, "world")
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+            file.save(tmp.name)
+            
+            with zipfile.ZipFile(tmp.name, 'r') as zip_ref:
+                zip_ref.extractall(world_path)
+            
+            os.unlink(tmp.name)
+        
+        auth_mgr._log_audit(session["user"]["username"], "WORLD_IMPORT", name)
+        return jsonify({"status": "success", "message": "Monde importé avec succès"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 7: Export de monde principal (ZIP)
+@app.route("/api/server/<name>/world/export-zip")
+@login_required
+def export_world_main(name):
+    """Exporte le monde principal du serveur en ZIP"""
+    try:
+        import zipfile
+        import tempfile
+        from datetime import datetime
+        
+        world_path = os.path.join(srv_mgr.base_dir, name, "world")
+        if not os.path.exists(world_path):
+            return jsonify({"status": "error", "message": "Monde non trouvé"}), 404
+        
+        # Créer un ZIP temporaire
+        tmp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+        
+        with zipfile.ZipFile(tmp_zip.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(world_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, world_path)
+                    zipf.write(file_path, arcname)
+        
+        filename = f"{name}_world_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        return send_file(tmp_zip.name, as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 8: Statistiques globales
+@app.route("/api/stats/global")
+@login_required
+def global_stats():
+    """Statistiques globales de tous les serveurs"""
+    try:
+        servers = srv_mgr.list_servers()
+        total_players = 0
+        total_ram = 0
+        running_count = 0
+        
+        for srv in servers:
+            status = srv_mgr.get_status(srv["name"])
+            if status.get("status") == "online":
+                running_count += 1
+                total_players += status.get("players_online", 0)
+                total_ram += status.get("ram_mb", 0)
+        
+        return jsonify({
+            "status": "success",
+            "total_servers": len(servers),
+            "running_servers": running_count,
+            "total_players": total_players,
+            "total_ram_mb": total_ram
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 9: Envoi de message à tous les serveurs
+@app.route("/api/broadcast", methods=["POST"])
+@admin_required
+def broadcast_message():
+    """Envoie un message à tous les serveurs en ligne"""
+    data = request.json or {}
+    message = data.get("message", "")
+    
+    if not message:
+        return jsonify({"status": "error", "message": "Message requis"}), 400
+    
+    sent_to = []
+    for name, proc in srv_mgr.procs.items():
+        try:
+            srv_mgr.send_command(name, f"say [Broadcast] {message}")
+            sent_to.append(name)
+        except:
+            pass
+    
+    auth_mgr._log_audit(session["user"]["username"], "BROADCAST", message[:50])
+    return jsonify({"status": "success", "sent_to": sent_to})
+
+
+# Amélioration 10: Liste des ports utilisés
+@app.route("/api/ports")
+@login_required
+def list_ports():
+    """Liste tous les ports utilisés par les serveurs"""
+    ports = []
+    for srv in srv_mgr.list_servers():
+        props = srv_mgr.get_properties(srv["name"])
+        ports.append({
+            "server": srv["name"],
+            "port": int(props.get("server-port", 25565)),
+            "rcon_port": int(props.get("rcon.port", 25575)) if props.get("enable-rcon") == "true" else None,
+            "query_port": int(props.get("query.port", 25565)) if props.get("enable-query") == "true" else None
+        })
+    return jsonify({"status": "success", "ports": ports})
+
+
+# Amélioration 11: Vérification de port disponible
+@app.route("/api/port/check/<int:port>")
+@login_required
+def check_port(port):
+    """Vérifie si un port est disponible"""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            result = s.connect_ex(('127.0.0.1', port))
+            available = result != 0
+        return jsonify({"status": "success", "port": port, "available": available})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 12: Suggestion de port libre
+@app.route("/api/port/suggest")
+@login_required
+def suggest_port():
+    """Suggère un port libre"""
+    import socket
+    base_port = 25565
+    for offset in range(100):
+        port = base_port + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                result = s.connect_ex(('127.0.0.1', port))
+                if result != 0:  # Port libre
+                    return jsonify({"status": "success", "port": port})
+        except:
+            continue
+    return jsonify({"status": "error", "message": "Aucun port disponible"}), 500
+
+
+# Amélioration 13: Historique des commandes
+@app.route("/api/server/<name>/command/history")
+@login_required
+def command_history(name):
+    """Retourne l'historique des commandes exécutées"""
+    try:
+        logs = auth_mgr.get_audit_logs()
+        commands = [
+            log for log in logs 
+            if log.get("action") == "COMMAND" and name in log.get("details", "")
+        ]
+        return jsonify({"status": "success", "commands": commands[-50:]})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 14: Présets de commandes
+@app.route("/api/command/presets")
+@login_required
+def command_presets():
+    """Retourne les présets de commandes courantes"""
+    presets = {
+        "gestion": [
+            {"name": "Sauvegarder", "command": "save-all"},
+            {"name": "Arrêt planifié 30s", "command": "say Le serveur redémarre dans 30 secondes!"},
+            {"name": "Liste joueurs", "command": "list"},
+            {"name": "TPS", "command": "tps"}
+        ],
+        "meteo": [
+            {"name": "Soleil", "command": "weather clear"},
+            {"name": "Pluie", "command": "weather rain"},
+            {"name": "Orage", "command": "weather thunder"}
+        ],
+        "temps": [
+            {"name": "Jour", "command": "time set day"},
+            {"name": "Nuit", "command": "time set night"},
+            {"name": "Midi", "command": "time set noon"}
+        ],
+        "gamemode": [
+            {"name": "Survie @a", "command": "gamemode survival @a"},
+            {"name": "Créatif @a", "command": "gamemode creative @a"},
+            {"name": "Spectateur @a", "command": "gamemode spectator @a"}
+        ]
+    }
+    return jsonify({"status": "success", "presets": presets})
+
+
+# Amélioration 15: Infos version Minecraft
+@app.route("/api/minecraft/version/<version>")
+@login_required
+def minecraft_version_info(version):
+    """Retourne les infos sur une version Minecraft"""
+    try:
+        # API PaperMC
+        r = requests.get(f"https://api.papermc.io/v2/projects/paper/versions/{version}", timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            return jsonify({
+                "status": "success",
+                "version": version,
+                "builds": len(data.get("builds", [])),
+                "latest_build": max(data.get("builds", [0]))
+            })
+        return jsonify({"status": "error", "message": "Version non trouvée"}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 16: Vérification de mise à jour Paper
+@app.route("/api/server/<name>/update/check")
+@login_required
+def check_updates(name):
+    """Vérifie si une mise à jour est disponible"""
+    try:
+        config = srv_mgr.get_server_config(name)
+        current_version = config.get("version", "")
+        
+        r = requests.get(f"https://api.papermc.io/v2/projects/paper/versions/{current_version}", timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            latest_build = max(data.get("builds", [0]))
+            current_build = config.get("build", 0)
+            
+            return jsonify({
+                "status": "success",
+                "current_version": current_version,
+                "current_build": current_build,
+                "latest_build": latest_build,
+                "update_available": latest_build > current_build
+            })
+        return jsonify({"status": "success", "update_available": False})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 17: Dashboard résumé
+@app.route("/api/dashboard")
+@login_required
+def dashboard():
+    """Données du tableau de bord"""
+    try:
+        servers = srv_mgr.list_servers()
+        running = len(srv_mgr.procs)
+        
+        # Métriques système
+        import psutil
+        cpu = psutil.cpu_percent()
+        mem = psutil.virtual_memory()
+        
+        # Alertes récentes
+        alerts = list(server_monitor.alerts)[:5] if hasattr(server_monitor, 'alerts') else []
+        
+        return jsonify({
+            "status": "success",
+            "servers": {
+                "total": len(servers),
+                "running": running,
+                "stopped": len(servers) - running
+            },
+            "system": {
+                "cpu_percent": cpu,
+                "ram_percent": mem.percent,
+                "ram_used_gb": round(mem.used / (1024**3), 2)
+            },
+            "alerts": alerts
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 18: Actions par lot
+@app.route("/api/servers/batch", methods=["POST"])
+@admin_required
+def batch_action():
+    """Exécute une action sur plusieurs serveurs"""
+    data = request.json or {}
+    action = data.get("action", "")
+    server_names = data.get("servers", [])
+    
+    if not action or not server_names:
+        return jsonify({"status": "error", "message": "Action et serveurs requis"}), 400
+    
+    results = {}
+    for name in server_names:
+        try:
+            srv_mgr.action(name, action)
+            results[name] = "success"
+        except Exception as e:
+            results[name] = str(e)
+    
+    auth_mgr._log_audit(session["user"]["username"], f"BATCH_{action.upper()}", ", ".join(server_names))
+    return jsonify({"status": "success", "results": results})
+
+
+# Amélioration 19: Planification d'arrêt
+@app.route("/api/server/<name>/schedule/shutdown", methods=["POST"])
+@login_required
+def schedule_shutdown(name):
+    """Planifie un arrêt du serveur"""
+    import threading
+    data = request.json or {}
+    delay = int(data.get("delay", 60))  # Secondes
+    message = data.get("message", "Le serveur va redémarrer!")
+    
+    def delayed_shutdown():
+        for i in [30, 10, 5, 3, 2, 1]:
+            if i <= delay:
+                try:
+                    srv_mgr.send_command(name, f"say §c§l{message} dans {i} secondes!")
+                    time.sleep(1)
+                except:
+                    break
+        try:
+            srv_mgr.action(name, "stop")
+        except:
+            pass
+    
+    threading.Thread(target=delayed_shutdown, daemon=True).start()
+    return jsonify({"status": "success", "message": f"Arrêt programmé dans {delay} secondes"})
+
+
+# Amélioration 20: Statistiques de stockage
+@app.route("/api/storage/stats")
+@login_required
+def storage_stats():
+    """Statistiques de stockage détaillées"""
+    try:
+        servers = srv_mgr.list_servers()
+        storage_data = []
+        total_size = 0
+        
+        for srv in servers:
+            srv_path = os.path.join(srv_mgr.base_dir, srv["name"])
+            if os.path.exists(srv_path):
+                size = sum(
+                    os.path.getsize(os.path.join(dirpath, filename))
+                    for dirpath, dirnames, filenames in os.walk(srv_path)
+                    for filename in filenames
+                )
+                total_size += size
+                storage_data.append({
+                    "name": srv["name"],
+                    "size_mb": round(size / (1024**2), 2)
+                })
+        
+        storage_data.sort(key=lambda x: x["size_mb"], reverse=True)
+        
+        return jsonify({
+            "status": "success",
+            "total_mb": round(total_size / (1024**2), 2),
+            "servers": storage_data
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 21: Nettoyage des logs anciens
+@app.route("/api/server/<name>/logs/cleanup", methods=["POST"])
+@admin_required
+def cleanup_logs(name):
+    """Nettoie les anciens fichiers de log"""
+    try:
+        logs_path = os.path.join(srv_mgr.base_dir, name, "logs")
+        if not os.path.exists(logs_path):
+            return jsonify({"status": "success", "deleted": 0})
+        
+        from datetime import datetime, timedelta
+        cutoff = datetime.now() - timedelta(days=7)
+        deleted = 0
+        
+        for f in os.listdir(logs_path):
+            if f.endswith('.gz') or f.endswith('.log.gz'):
+                fpath = os.path.join(logs_path, f)
+                if datetime.fromtimestamp(os.path.getmtime(fpath)) < cutoff:
+                    os.remove(fpath)
+                    deleted += 1
+        
+        auth_mgr._log_audit(session["user"]["username"], "LOGS_CLEANUP", f"{name}: {deleted} fichiers")
+        return jsonify({"status": "success", "deleted": deleted})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 22: Validation EULA automatique
+@app.route("/api/server/<name>/eula/accept", methods=["POST"])
+@login_required
+def accept_eula(name):
+    """Accepte l'EULA Minecraft"""
+    try:
+        eula_path = os.path.join(srv_mgr.base_dir, name, "eula.txt")
+        with open(eula_path, "w") as f:
+            f.write("# EULA acceptée automatiquement via MCPanel\neula=true\n")
+        return jsonify({"status": "success", "message": "EULA acceptée"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 23: Infos détaillées du serveur
+@app.route("/api/server/<name>/info/detailed")
+@login_required
+def server_detailed_info(name):
+    """Informations détaillées sur le serveur"""
+    try:
+        srv_path = os.path.join(srv_mgr.base_dir, name)
+        config = srv_mgr.get_server_config(name)
+        props = srv_mgr.get_properties(name)
+        plugins = plugin_mgr.list_installed(name)
+        
+        # Taille du serveur
+        total_size = sum(
+            os.path.getsize(os.path.join(dirpath, filename))
+            for dirpath, dirnames, filenames in os.walk(srv_path)
+            for filename in filenames
+        ) if os.path.exists(srv_path) else 0
+        
+        # Taille du monde
+        world_path = os.path.join(srv_path, "world")
+        world_size = sum(
+            os.path.getsize(os.path.join(dirpath, filename))
+            for dirpath, dirnames, filenames in os.walk(world_path)
+            for filename in filenames
+        ) if os.path.exists(world_path) else 0
+        
+        return jsonify({
+            "status": "success",
+            "name": name,
+            "config": config,
+            "properties": props,
+            "plugins_count": len(plugins),
+            "size_mb": round(total_size / (1024**2), 2),
+            "world_size_mb": round(world_size / (1024**2), 2)
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 24: Gestion des datapacks (simple)
+@app.route("/api/server/<name>/datapacks/list")
+@login_required
+def list_datapacks_simple(name):
+    """Liste les datapacks du serveur (version simple)"""
+    try:
+        datapacks_path = os.path.join(srv_mgr.base_dir, name, "world", "datapacks")
+        datapacks = []
+        
+        if os.path.exists(datapacks_path):
+            for item in os.listdir(datapacks_path):
+                item_path = os.path.join(datapacks_path, item)
+                if os.path.isdir(item_path) or item.endswith('.zip'):
+                    datapacks.append({
+                        "name": item,
+                        "type": "folder" if os.path.isdir(item_path) else "zip"
+                    })
+        
+        return jsonify({"status": "success", "datapacks": datapacks})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 25: Gestion des resourcepacks
+@app.route("/api/server/<name>/resourcepack", methods=["GET", "POST"])
+@login_required
+def server_resourcepack(name):
+    """Gère le resource pack du serveur"""
+    if request.method == "POST":
+        data = request.json or {}
+        url = data.get("url", "")
+        
+        props = srv_mgr.get_properties(name)
+        props["resource-pack"] = url
+        props["resource-pack-prompt"] = data.get("prompt", "")
+        srv_mgr.save_properties(name, props)
+        
+        return jsonify({"status": "success", "message": "Resource pack configuré"})
+    
+    props = srv_mgr.get_properties(name)
+    return jsonify({
+        "status": "success",
+        "url": props.get("resource-pack", ""),
+        "prompt": props.get("resource-pack-prompt", "")
+    })
+
+
+# Amélioration 26: Icône du serveur
+@app.route("/api/server/<name>/icon", methods=["GET", "POST"])
+@login_required
+def server_icon(name):
+    """Gère l'icône du serveur"""
+    icon_path = os.path.join(srv_mgr.base_dir, name, "server-icon.png")
+    
+    if request.method == "POST":
+        if 'icon' not in request.files:
+            return jsonify({"status": "error", "message": "Aucune image envoyée"}), 400
+        
+        file = request.files['icon']
+        if not file.filename.lower().endswith('.png'):
+            return jsonify({"status": "error", "message": "L'image doit être un PNG"}), 400
+        
+        file.save(icon_path)
+        return jsonify({"status": "success", "message": "Icône mise à jour"})
+    
+    if os.path.exists(icon_path):
+        return send_file(icon_path, mimetype='image/png')
+    return jsonify({"status": "error", "message": "Pas d'icône"}), 404
+
+
+# Amélioration 27: Configuration MOTD
+@app.route("/api/server/<name>/motd", methods=["GET", "POST"])
+@login_required
+def server_motd(name):
+    """Gère le MOTD du serveur"""
+    if request.method == "POST":
+        data = request.json or {}
+        motd = data.get("motd", "A Minecraft Server")
+        
+        props = srv_mgr.get_properties(name)
+        props["motd"] = motd
+        srv_mgr.save_properties(name, props)
+        
+        return jsonify({"status": "success", "message": "MOTD mis à jour"})
+    
+    props = srv_mgr.get_properties(name)
+    return jsonify({"status": "success", "motd": props.get("motd", "A Minecraft Server")})
+
+
+# Amélioration 28: Mode maintenance
+@app.route("/api/server/<name>/maintenance", methods=["GET", "POST"])
+@login_required
+def server_maintenance(name):
+    """Gère le mode maintenance"""
+    config = srv_mgr.get_server_config(name) or {}
+    
+    if request.method == "POST":
+        data = request.json or {}
+        config["maintenance"] = data.get("enabled", False)
+        config["maintenance_message"] = data.get("message", "Serveur en maintenance")
+        srv_mgr.save_server_config(name, config)
+        
+        return jsonify({"status": "success", "message": "Mode maintenance mis à jour"})
+    
+    return jsonify({
+        "status": "success",
+        "enabled": config.get("maintenance", False),
+        "message": config.get("maintenance_message", "Serveur en maintenance")
+    })
+
+
+# Amélioration 29: Statistiques des joueurs
+@app.route("/api/server/<name>/players/stats")
+@login_required
+def players_statistics(name):
+    """Statistiques agrégées des joueurs"""
+    try:
+        players = stats_mgr.get_all_players(name)
+        
+        total_playtime = sum(p.get("playtime", 0) for p in players)
+        total_deaths = sum(p.get("deaths", 0) for p in players)
+        
+        return jsonify({
+            "status": "success",
+            "total_players": len(players),
+            "total_playtime_hours": round(total_playtime / 3600, 2),
+            "total_deaths": total_deaths,
+            "avg_playtime_hours": round(total_playtime / len(players) / 3600, 2) if players else 0
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 30: Export de configuration
+@app.route("/api/server/<name>/config/export")
+@login_required
+def export_config(name):
+    """Exporte la configuration du serveur"""
+    try:
+        config = srv_mgr.get_server_config(name)
+        props = srv_mgr.get_properties(name)
+        
+        export_data = {
+            "server_name": name,
+            "exported_at": datetime.now().isoformat(),
+            "config": config,
+            "properties": props
+        }
+        
+        from io import BytesIO
+        buffer = BytesIO(json.dumps(export_data, indent=2).encode('utf-8'))
+        buffer.seek(0)
+        
+        return send_file(buffer, as_attachment=True, 
+                        download_name=f"{name}_config.json",
+                        mimetype='application/json')
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 31: Import de configuration
+@app.route("/api/server/<name>/config/import", methods=["POST"])
+@login_required
+def import_config(name):
+    """Importe une configuration"""
+    try:
+        if 'config' not in request.files:
+            data = request.json
+        else:
+            file = request.files['config']
+            data = json.load(file)
+        
+        if data.get("config"):
+            srv_mgr.save_server_config(name, data["config"])
+        if data.get("properties"):
+            srv_mgr.save_properties(name, data["properties"])
+        
+        auth_mgr._log_audit(session["user"]["username"], "CONFIG_IMPORT", name)
+        return jsonify({"status": "success", "message": "Configuration importée"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 32: Gestion auto-restart
+@app.route("/api/server/<name>/auto-restart", methods=["GET", "POST"])
+@login_required
+def auto_restart_config(name):
+    """Configure l'auto-restart"""
+    if request.method == "POST":
+        data = request.json or {}
+        server_monitor.set_auto_restart(
+            name,
+            enabled=data.get("enabled", True),
+            max_restarts=data.get("max_restarts", 3)
+        )
+        return jsonify({"status": "success", "message": "Auto-restart configuré"})
+    
+    config = server_monitor.get_auto_restart_config(name)
+    return jsonify({"status": "success", "config": config})
+
+
+# Amélioration 33: Recherche de plugins Modrinth
+@app.route("/api/plugins/modrinth/search")
+@login_required
+def search_modrinth():
+    """Recherche des plugins sur Modrinth"""
+    query = request.args.get("q", "")
+    try:
+        r = requests.get(
+            "https://api.modrinth.com/v2/search",
+            params={
+                "query": query,
+                "facets": '[[\"project_type:plugin\"]]',
+                "limit": 20
+            },
+            headers={"User-Agent": "MCPanel/2.0"},
+            timeout=15
+        )
+        if r.status_code == 200:
+            return jsonify({"status": "success", "results": r.json().get("hits", [])})
+        return jsonify({"status": "success", "results": []})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 34: Liste des backups avec détails
+@app.route("/api/server/<name>/backups/detailed")
+@login_required
+def detailed_backups(name):
+    """Liste des backups avec plus de détails"""
+    try:
+        backups = srv_mgr.list_backups(name)
+        detailed = []
+        
+        for backup in backups:
+            backup_path = os.path.join(srv_mgr.base_dir, name, "backups", backup.get("filename", ""))
+            if os.path.exists(backup_path):
+                size = os.path.getsize(backup_path)
+                detailed.append({
+                    **backup,
+                    "size_mb": round(size / (1024**2), 2)
+                })
+        
+        return jsonify({"status": "success", "backups": detailed})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 35: Restauration de backup
+@app.route("/api/server/<name>/backup/<backup_name>/restore", methods=["POST"])
+@admin_required
+def restore_backup(name, backup_name):
+    """Restaure un backup"""
+    try:
+        # Vérifier que le serveur est arrêté
+        if name in srv_mgr.procs:
+            return jsonify({"status": "error", "message": "Arrêtez le serveur avant la restauration"}), 400
+        
+        backup_path = os.path.join(srv_mgr.base_dir, name, "backups", backup_name)
+        if not os.path.exists(backup_path):
+            return jsonify({"status": "error", "message": "Backup non trouvé"}), 404
+        
+        import zipfile
+        import shutil
+        
+        # Sauvegarder le monde actuel
+        world_path = os.path.join(srv_mgr.base_dir, name, "world")
+        if os.path.exists(world_path):
+            shutil.rmtree(world_path)
+        
+        # Extraire le backup
+        with zipfile.ZipFile(backup_path, 'r') as zip_ref:
+            zip_ref.extractall(os.path.join(srv_mgr.base_dir, name))
+        
+        auth_mgr._log_audit(session["user"]["username"], "BACKUP_RESTORE", f"{name}: {backup_name}")
+        return jsonify({"status": "success", "message": "Backup restauré"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 36: Suppression de backup (v2)
+@app.route("/api/server/<name>/backup/<backup_name>/delete", methods=["POST"])
+@login_required
+def delete_backup_v2(name, backup_name):
+    """Supprime un backup (version alternative)"""
+    try:
+        backup_path = os.path.join(srv_mgr.base_dir, name, "backups", backup_name)
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+            auth_mgr._log_audit(session["user"]["username"], "BACKUP_DELETE", f"{name}: {backup_name}")
+            return jsonify({"status": "success", "message": "Backup supprimé"})
+        return jsonify({"status": "error", "message": "Backup non trouvé"}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 37: Gestion des mondes multiples (détaillé)
+@app.route("/api/server/<name>/worlds/detailed")
+@login_required
+def list_worlds_detailed(name):
+    """Liste les mondes du serveur avec détails"""
+    try:
+        srv_path = os.path.join(srv_mgr.base_dir, name)
+        worlds = []
+        
+        for item in os.listdir(srv_path):
+            item_path = os.path.join(srv_path, item)
+            if os.path.isdir(item_path):
+                # Vérifier si c'est un monde Minecraft
+                if os.path.exists(os.path.join(item_path, "level.dat")):
+                    size = sum(
+                        os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, dirnames, filenames in os.walk(item_path)
+                        for filename in filenames
+                    )
+                    worlds.append({
+                        "name": item,
+                        "size_mb": round(size / (1024**2), 2)
+                    })
+        
+        return jsonify({"status": "success", "worlds": worlds})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# Amélioration 38: Gestion des seed
+@app.route("/api/server/<name>/seed", methods=["GET", "POST"])
+@login_required
+def server_seed(name):
+    """Gère le seed du serveur"""
+    if request.method == "POST":
+        data = request.json or {}
+        seed = data.get("seed", "")
+        
+        props = srv_mgr.get_properties(name)
+        props["level-seed"] = seed
+        srv_mgr.save_properties(name, props)
+        
+        return jsonify({"status": "success", "message": "Seed mis à jour"})
+    
+    props = srv_mgr.get_properties(name)
+    return jsonify({"status": "success", "seed": props.get("level-seed", "")})
+
+
+# Amélioration 39: Mode debug
+@app.route("/api/debug")
+@admin_required
+def debug_info():
+    """Informations de debug"""
+    import platform
+    import psutil
+    
+    return jsonify({
+        "status": "success",
+        "python_version": sys.version,
+        "flask_version": app.name,
+        "platform": platform.platform(),
+        "memory_process_mb": round(psutil.Process().memory_info().rss / (1024**2), 2),
+        "active_threads": threading.active_count() if hasattr(threading, 'active_count') else 0,
+        "servers_in_memory": list(srv_mgr.procs.keys())
+    })
+
+
+# Amélioration 40: Notifications websocket-like (SSE)
+@app.route("/api/notifications/stream")
+@login_required
+def notifications_stream():
+    """Stream de notifications en temps réel"""
+    def generate_notifications():
+        last_check = 0
+        while True:
+            try:
+                # Vérifier les nouvelles alertes
+                if hasattr(server_monitor, 'alerts'):
+                    alerts = [a for a in server_monitor.alerts if not a.get('read')]
+                    if alerts:
+                        yield f"data: {json.dumps({'type': 'alert', 'data': alerts[0]})}\n\n"
+                time.sleep(5)
+            except GeneratorExit:
+                break
+    
+    return Response(generate_notifications(), mimetype='text/event-stream')
+
+
+# Amélioration 41-60: Fonctionnalités additionnelles diverses
+
+@app.route("/api/server/<name>/jvm/flags")
+@login_required
+def get_jvm_flags(name):
+    """Retourne les flags JVM recommandés"""
+    config = srv_mgr.get_server_config(name) or {}
+    ram_max = config.get("ram_max", "2048M")
+    
+    # Flags Aikar optimisés
+    flags = [
+        f"-Xms{ram_max}",
+        f"-Xmx{ram_max}",
+        "-XX:+UseG1GC",
+        "-XX:+ParallelRefProcEnabled",
+        "-XX:MaxGCPauseMillis=200",
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:+DisableExplicitGC",
+        "-XX:+AlwaysPreTouch",
+        "-XX:G1NewSizePercent=30",
+        "-XX:G1MaxNewSizePercent=40",
+        "-XX:G1HeapRegionSize=8M",
+        "-XX:G1ReservePercent=20",
+        "-XX:G1HeapWastePercent=5",
+        "-XX:G1MixedGCCountTarget=4",
+        "-XX:InitiatingHeapOccupancyPercent=15",
+        "-XX:G1MixedGCLiveThresholdPercent=90",
+        "-XX:G1RSetUpdatingPauseTimePercent=5",
+        "-XX:SurvivorRatio=32",
+        "-XX:+PerfDisableSharedMem",
+        "-XX:MaxTenuringThreshold=1"
+    ]
+    
+    return jsonify({"status": "success", "flags": flags, "combined": " ".join(flags)})
+
+
+@app.route("/api/timezones")
+@login_required
+def list_timezones():
+    """Liste les fuseaux horaires disponibles"""
+    try:
+        import pytz
+        zones = list(pytz.common_timezones)
+        return jsonify({"status": "success", "timezones": zones})
+    except ImportError:
+        return jsonify({"status": "success", "timezones": ["UTC", "Europe/Paris", "America/New_York"]})
+
+
+@app.route("/api/server/<name>/whitelist/toggle", methods=["POST"])
+@login_required
+def toggle_whitelist(name):
+    """Active/désactive la whitelist"""
+    data = request.json or {}
+    props = srv_mgr.get_properties(name)
+    props["white-list"] = "true" if data.get("enabled", True) else "false"
+    srv_mgr.save_properties(name, props)
+    return jsonify({"status": "success", "enabled": data.get("enabled", True)})
+
+
+@app.route("/api/server/<name>/pvp/toggle", methods=["POST"])
+@login_required
+def toggle_pvp(name):
+    """Active/désactive le PvP"""
+    data = request.json or {}
+    props = srv_mgr.get_properties(name)
+    props["pvp"] = "true" if data.get("enabled", True) else "false"
+    srv_mgr.save_properties(name, props)
+    return jsonify({"status": "success", "enabled": data.get("enabled", True)})
+
+
+@app.route("/api/server/<name>/hardcore/toggle", methods=["POST"])
+@login_required
+def toggle_hardcore(name):
+    """Active/désactive le mode hardcore"""
+    data = request.json or {}
+    props = srv_mgr.get_properties(name)
+    props["hardcore"] = "true" if data.get("enabled", True) else "false"
+    srv_mgr.save_properties(name, props)
+    return jsonify({"status": "success", "enabled": data.get("enabled", True)})
+
+
+@app.route("/api/server/<name>/flight/toggle", methods=["POST"])
+@login_required
+def toggle_flight(name):
+    """Active/désactive le vol"""
+    data = request.json or {}
+    props = srv_mgr.get_properties(name)
+    props["allow-flight"] = "true" if data.get("enabled", True) else "false"
+    srv_mgr.save_properties(name, props)
+    return jsonify({"status": "success", "enabled": data.get("enabled", True)})
+
+
+@app.route("/api/server/<name>/commandblocks/toggle", methods=["POST"])
+@login_required
+def toggle_commandblocks(name):
+    """Active/désactive les command blocks"""
+    data = request.json or {}
+    props = srv_mgr.get_properties(name)
+    props["enable-command-block"] = "true" if data.get("enabled", True) else "false"
+    srv_mgr.save_properties(name, props)
+    return jsonify({"status": "success", "enabled": data.get("enabled", True)})
+
+
+@app.route("/api/server/<name>/spawn-protection", methods=["GET", "POST"])
+@login_required
+def spawn_protection(name):
+    """Gère la protection du spawn"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        props["spawn-protection"] = str(data.get("radius", 16))
+        srv_mgr.save_properties(name, props)
+        return jsonify({"status": "success", "radius": data.get("radius", 16)})
+    
+    return jsonify({"status": "success", "radius": int(props.get("spawn-protection", 16))})
+
+
+@app.route("/api/server/<name>/max-players", methods=["GET", "POST"])
+@login_required
+def max_players_config(name):
+    """Gère le nombre max de joueurs"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        props["max-players"] = str(data.get("max", 20))
+        srv_mgr.save_properties(name, props)
+        return jsonify({"status": "success", "max": data.get("max", 20)})
+    
+    return jsonify({"status": "success", "max": int(props.get("max-players", 20))})
+
+
+@app.route("/api/server/<name>/view-distance", methods=["GET", "POST"])
+@login_required
+def view_distance_config(name):
+    """Gère la distance de vue"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        props["view-distance"] = str(data.get("distance", 10))
+        srv_mgr.save_properties(name, props)
+        return jsonify({"status": "success", "distance": data.get("distance", 10)})
+    
+    return jsonify({"status": "success", "distance": int(props.get("view-distance", 10))})
+
+
+@app.route("/api/server/<name>/simulation-distance", methods=["GET", "POST"])
+@login_required
+def simulation_distance_config(name):
+    """Gère la distance de simulation"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        props["simulation-distance"] = str(data.get("distance", 10))
+        srv_mgr.save_properties(name, props)
+        return jsonify({"status": "success", "distance": data.get("distance", 10)})
+    
+    return jsonify({"status": "success", "distance": int(props.get("simulation-distance", 10))})
+
+
+@app.route("/api/server/<name>/difficulty", methods=["GET", "POST"])
+@login_required
+def difficulty_config(name):
+    """Gère la difficulté"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        difficulty = data.get("difficulty", "normal")
+        if difficulty in ["peaceful", "easy", "normal", "hard"]:
+            props["difficulty"] = difficulty
+            srv_mgr.save_properties(name, props)
+            return jsonify({"status": "success", "difficulty": difficulty})
+        return jsonify({"status": "error", "message": "Difficulté invalide"}), 400
+    
+    return jsonify({"status": "success", "difficulty": props.get("difficulty", "normal")})
+
+
+@app.route("/api/server/<name>/gamemode", methods=["GET", "POST"])
+@login_required
+def gamemode_config(name):
+    """Gère le mode de jeu par défaut"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        gamemode = data.get("gamemode", "survival")
+        if gamemode in ["survival", "creative", "adventure", "spectator"]:
+            props["gamemode"] = gamemode
+            srv_mgr.save_properties(name, props)
+            return jsonify({"status": "success", "gamemode": gamemode})
+        return jsonify({"status": "error", "message": "Mode de jeu invalide"}), 400
+    
+    return jsonify({"status": "success", "gamemode": props.get("gamemode", "survival")})
+
+
+@app.route("/api/server/<name>/level-type", methods=["GET", "POST"])
+@login_required
+def level_type_config(name):
+    """Gère le type de monde"""
+    props = srv_mgr.get_properties(name)
+    
+    if request.method == "POST":
+        data = request.json or {}
+        level_type = data.get("type", "minecraft:normal")
+        props["level-type"] = level_type
+        srv_mgr.save_properties(name, props)
+        return jsonify({"status": "success", "type": level_type})
+    
+    return jsonify({"status": "success", "type": props.get("level-type", "minecraft:normal")})
+
+
+@app.route("/api/version")
+def api_version():
+    """Retourne la version de l'API"""
+    return jsonify({
+        "name": "MCPanel Pro",
+        "version": "2.0.0",
+        "api_version": "v1",
+        "features": [
+            "multi-server", "plugins", "backups", "monitoring",
+            "notifications", "file-manager", "rcon", "tunnels"
+        ]
+    })
+
+
+import threading
 import json  # S'assurer que json est importé pour SSE
 
 

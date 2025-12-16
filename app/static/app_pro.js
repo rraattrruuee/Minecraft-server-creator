@@ -79,10 +79,10 @@ function loadUserPreferences() {
             console.warn('Erreur chargement préférences:', e);
         }
     }
-    
+
     // Charger l'historique des commandes
     loadCommandHistory();
-    
+
     // Charger les commandes favorites
     loadFavoriteCommands();
     renderFavoriteCommands();
@@ -98,7 +98,7 @@ function loadCommandHistory() {
     if (saved) {
         try {
             commandHistory = JSON.parse(saved);
-        } catch (e) {}
+        } catch (e) { }
     }
 }
 
@@ -112,7 +112,7 @@ function loadFavoriteCommands() {
     if (saved) {
         try {
             favoriteCommands = JSON.parse(saved);
-        } catch (e) {}
+        } catch (e) { }
     }
 }
 
@@ -152,15 +152,15 @@ function renderFavoriteCommands() {
     const container = document.getElementById('favorite-commands-list');
     const bar = document.getElementById('favorite-commands-bar');
     if (!container) return;
-    
+
     if (favoriteCommands.length === 0) {
         if (bar) bar.style.display = 'none';
         container.innerHTML = '';
         return;
     }
-    
+
     if (bar) bar.style.display = 'flex';
-    
+
     container.innerHTML = favoriteCommands.map(cmd => `
         <button class="fav-cmd-btn" onclick="useFavoriteCommand('${escapeHtmlAttr(cmd)}')" title="${escapeHtmlAttr(cmd)}">
             <span class="fav-cmd-text">${escapeHtml(cmd.length > 15 ? cmd.substring(0, 15) + '...' : cmd)}</span>
@@ -201,7 +201,7 @@ function setupConnectionDetection() {
             startLogStream();
         }
     });
-    
+
     window.addEventListener('offline', () => {
         isOnline = false;
         showToast('⚠️ Connexion perdue', 'warning');
@@ -213,11 +213,11 @@ function setupConnectionDetection() {
 // Amélioration 13: Détection d'inactivité
 function setupIdleDetection() {
     const resetActivity = () => { lastActivity = Date.now(); };
-    
+
     document.addEventListener('mousemove', resetActivity);
     document.addEventListener('keydown', resetActivity);
     document.addEventListener('click', resetActivity);
-    
+
     setInterval(() => {
         if (Date.now() - lastActivity > IDLE_TIMEOUT) {
             // Réduire la fréquence des requêtes en mode inactif
@@ -237,7 +237,7 @@ function setupGlobalShortcuts() {
             // Sauf pour les raccourcis avec Ctrl
             if (!e.ctrlKey) return;
         }
-        
+
         // Ctrl+S - Sauvegarder la config
         if (e.ctrlKey && e.key === 's') {
             e.preventDefault();
@@ -246,26 +246,26 @@ function setupGlobalShortcuts() {
                 saveConfig();
             }
         }
-        
+
         // Ctrl+Enter - Envoyer la commande
         if (e.ctrlKey && e.key === 'Enter') {
             e.preventDefault();
             sendCommand();
         }
-        
+
         // F1-F5 - Changer d'onglet
         if (e.key === 'F1') { e.preventDefault(); switchTab('console'); }
         if (e.key === 'F2') { e.preventDefault(); switchTab('players'); }
         if (e.key === 'F3') { e.preventDefault(); switchTab('plugins'); }
         if (e.key === 'F4') { e.preventDefault(); switchTab('config'); }
         if (e.key === 'F5') { e.preventDefault(); switchTab('backups'); }
-        
+
         // Ctrl+R - Rafraîchir
         if (e.ctrlKey && e.key === 'r') {
             e.preventDefault();
             refreshAll();
         }
-        
+
         // Escape - Fermer les modals
         if (e.key === 'Escape') {
             closeModal();
@@ -278,7 +278,7 @@ function setupGlobalShortcuts() {
 // Amélioration 15: Navigation historique commandes
 function handleCommandInput(event) {
     const input = document.getElementById('cmd-input');
-    
+
     if (event.key === 'Enter') {
         sendCommand();
     } else if (event.key === 'ArrowUp') {
@@ -326,14 +326,14 @@ const MINECRAFT_COMMANDS = [
 function autocompleteCommand() {
     const input = document.getElementById('cmd-input');
     if (!input) return;
-    
+
     const value = input.value.toLowerCase();
     if (!value) return;
-    
-    const matches = MINECRAFT_COMMANDS.filter(cmd => 
+
+    const matches = MINECRAFT_COMMANDS.filter(cmd =>
         cmd.toLowerCase().startsWith(value)
     );
-    
+
     if (matches.length === 1) {
         input.value = matches[0] + ' ';
     } else if (matches.length > 1) {
@@ -344,20 +344,20 @@ function autocompleteCommand() {
 function showCommandSuggestions(suggestions) {
     let popup = document.getElementById('cmd-suggestions');
     const wrapper = document.querySelector('.console-input');
-    
+
     if (!popup && wrapper) {
         popup = document.createElement('div');
         popup.id = 'cmd-suggestions';
         popup.className = 'cmd-suggestions';
         wrapper.appendChild(popup);
     }
-    
+
     if (popup) {
-        popup.innerHTML = suggestions.slice(0, 10).map(s => 
+        popup.innerHTML = suggestions.slice(0, 10).map(s =>
             `<div class="cmd-suggestion" onclick="selectSuggestion('${s}')">${s}</div>`
         ).join('');
         popup.style.display = 'block';
-        
+
         setTimeout(() => { popup.style.display = 'none'; }, 5000);
     }
 }
@@ -368,7 +368,7 @@ function selectSuggestion(cmd) {
         input.value = cmd + ' ';
         input.focus();
     }
-    
+
     const popup = document.getElementById('cmd-suggestions');
     if (popup) popup.style.display = 'none';
 }
@@ -389,7 +389,7 @@ function debounce(func, wait) {
 // Amélioration 18: Fonction throttle
 function throttle(func, limit) {
     let inThrottle;
-    return function(...args) {
+    return function (...args) {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;
@@ -415,27 +415,27 @@ function sendDesktopNotification(title, body, icon = '/static/icon.png') {
 // Amélioration 20: Sons de notification
 function playNotificationSound(type = 'info') {
     if (!userPreferences.soundEnabled) return;
-    
+
     // Utiliser l'API Web Audio pour jouer un son simple
     try {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
-        
+
         oscillator.connect(gainNode);
         gainNode.connect(audioContext.destination);
-        
+
         const frequencies = {
             success: 800,
             error: 300,
             warning: 500,
             info: 600
         };
-        
+
         oscillator.frequency.value = frequencies[type] || 600;
         oscillator.type = 'sine';
         gainNode.gain.value = 0.1;
-        
+
         oscillator.start();
         oscillator.stop(audioContext.currentTime + 0.1);
     } catch (e) {
@@ -445,379 +445,336 @@ function playNotificationSound(type = 'info') {
 
 
 
-    // ================================
-    // Améliorations 21 à 60 : Robustesse avancée
-    // ================================
+// ================================
+// Améliorations 21 à 60 : Robustesse avancée
+// ================================
 
-    // Amélioration 21: Surveillance mémoire JS
-    setInterval(() => {
-        if (window.performance && performance.memory) {
-            sessionStats.jsHeap = performance.memory.usedJSHeapSize;
-        }
-    }, 10000);
+// Amélioration 21: Surveillance mémoire JS
+setInterval(() => {
+    if (window.performance && performance.memory) {
+        sessionStats.jsHeap = performance.memory.usedJSHeapSize;
+    }
+}, 10000);
 
-    // Amélioration 22: Nettoyage à la fermeture (utiliser pagehide au lieu de unload)
-    window.addEventListener('pagehide', () => {
-        // Nettoyage global - sauvegarder les préférences
+// Amélioration 22: Nettoyage à la fermeture (utiliser pagehide au lieu de unload)
+window.addEventListener('pagehide', () => {
+    // Nettoyage global - sauvegarder les préférences
+    try {
+        saveUserPreferences();
+    } catch (e) { }
+});
+
+// Amélioration 23: Limitation du nombre d'API calls simultanés
+let apiCallCount = 0;
+const MAX_API_CALLS = 5;
+
+// Amélioration 24: Retry automatique sur fetch réseau
+async function robustFetch(url, options = {}, retries = 3) {
+    for (let i = 0; i < retries; i++) {
         try {
-            saveUserPreferences();
-        } catch (e) {}
+            apiCallCount++;
+            if (apiCallCount > MAX_API_CALLS) throw new Error('Trop d\'appels API simultanés');
+            const res = await fetch(url, options);
+            apiCallCount--;
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res;
+        } catch (e) {
+            apiCallCount--;
+            if (i === retries - 1) throw e;
+            await new Promise(r => setTimeout(r, 500 * (i + 1)));
+        }
+    }
+}
+
+// Amélioration 25: Timeout sur fetch
+async function fetchWithTimeout(url, options = {}, timeout = 8000) {
+    return Promise.race([
+        fetch(url, options),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+    ]);
+}
+
+// Amélioration 26: Validation stricte des entrées utilisateur
+function validateInput(str, type = 'text') {
+    if (typeof str !== 'string') return false;
+    if (type === 'text') return str.length < 200 && !/\0/.test(str);
+    if (type === 'cmd') return /^\/?[a-z0-9_\- ]+$/i.test(str);
+    return true;
+}
+
+// Amélioration 27: Historique des erreurs JS
+let jsErrorLog = [];
+window.addEventListener('error', e => {
+    jsErrorLog.push({
+        message: e.message,
+        file: e.filename,
+        line: e.lineno,
+        time: Date.now()
     });
+    if (jsErrorLog.length > 100) jsErrorLog.shift();
+});
 
-    // Amélioration 23: Limitation du nombre d'API calls simultanés
-    let apiCallCount = 0;
-    const MAX_API_CALLS = 5;
+// Amélioration 28: Affichage d'un message d'erreur global
+function showGlobalError(msg) {
+    let el = document.getElementById('global-error');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'global-error';
+        el.style = 'position:fixed;top:0;left:0;width:100vw;background:#c00;color:#fff;z-index:9999;padding:8px;text-align:center;font-weight:bold;';
+        document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    setTimeout(() => { el.remove(); }, 8000);
+}
 
-    // Amélioration 24: Retry automatique sur fetch réseau
-    async function robustFetch(url, options = {}, retries = 3) {
-        for (let i = 0; i < retries; i++) {
-            try {
-                apiCallCount++;
-                if (apiCallCount > MAX_API_CALLS) throw new Error('Trop d\'appels API simultanés');
-                const res = await fetch(url, options);
-                apiCallCount--;
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                return res;
-            } catch (e) {
-                apiCallCount--;
-                if (i === retries - 1) throw e;
-                await new Promise(r => setTimeout(r, 500 * (i + 1)));
-            }
+// Amélioration 29: Mode dégradé si API down
+async function checkApiHealth() {
+    try {
+        await fetch('/api/ping', { cache: 'no-store' });
+        document.body.classList.remove('api-down');
+    } catch {
+        document.body.classList.add('api-down');
+        showGlobalError('API injoignable');
+    }
+}
+setInterval(checkApiHealth, 15000);
+
+// Amélioration 30: Limitation du spam de notifications
+let lastNotifTime = 0;
+function throttledNotify(title, body) {
+    if (Date.now() - lastNotifTime < 2000) return;
+    lastNotifTime = Date.now();
+    sendDesktopNotification(title, body);
+}
+
+// Amélioration 31: Sauvegarde automatique des logs côté client
+function saveLogsToFile() {
+    const blob = new Blob([allLogs.join('\n')], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'mcpanel_logs_' + (new Date()).toISOString().replace(/[:.]/g, '-') + '.txt';
+    a.click();
+}
+
+// Amélioration 32: Nettoyage périodique du cache
+setInterval(() => {
+    for (const k in dataCache) {
+        if (dataCache[k] && Date.now() - (dataCache.lastUpdate[k] || 0) > CACHE_DURATION * 2) {
+            dataCache[k] = null;
         }
     }
+}, 60000);
 
-    // Amélioration 25: Timeout sur fetch
-    async function fetchWithTimeout(url, options = {}, timeout = 8000) {
-        return Promise.race([
-            fetch(url, options),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
-        ]);
+// Amélioration 33: Mode compact automatique sur mobile
+if (window.innerWidth < 600) userPreferences.compactMode = true;
+
+// Amélioration 34: Affichage du temps de réponse API
+async function timedFetch(url, options) {
+    const t0 = performance.now();
+    const res = await fetch(url, options);
+    const t1 = performance.now();
+    sessionStats.apiLastResponse = t1 - t0;
+    return res;
+}
+
+// Amélioration 35: Affichage du statut réseau
+window.addEventListener('online', () => showGlobalError('Connexion rétablie'));
+window.addEventListener('offline', () => showGlobalError('Connexion perdue'));
+
+// Amélioration 36: Limite de lignes dans la console
+function trimConsoleLogs(max = userPreferences.logMaxLines) {
+    if (allLogs.length > max) allLogs = allLogs.slice(-max);
+}
+
+// Amélioration 37: Mode lecture seule pour la console
+let consoleReadOnly = false;
+
+// Amélioration 38: Affichage du nombre de joueurs connectés
+function updatePlayerCount(count) {
+    const el = document.getElementById('player-count');
+    if (el) el.textContent = count;
+}
+
+// Amélioration 39: Mode sombre automatique selon l'heure
+function autoDarkMode() {
+    const h = new Date().getHours();
+    document.body.classList.toggle('dark', h < 8 || h > 19);
+}
+setInterval(autoDarkMode, 60000);
+
+// Amélioration 40: Protection contre double clic sur boutons critiques
+function preventDoubleClick(btn) {
+    btn.disabled = true;
+    setTimeout(() => { btn.disabled = false; }, 1500);
+}
+
+// Amélioration 41: Affichage de la version du client
+function showClientVersion() {
+    let el = document.getElementById('client-version');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'client-version';
+        el.style = 'position:fixed;bottom:0;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'MCPanel Ultimate v2.0 - 2025-12-06';
+}
+showClientVersion();
 
-    // Amélioration 26: Validation stricte des entrées utilisateur
-    function validateInput(str, type = 'text') {
-        if (typeof str !== 'string') return false;
-        if (type === 'text') return str.length < 200 && !/\0/.test(str);
-        if (type === 'cmd') return /^\/?[a-z0-9_\- ]+$/i.test(str);
-        return true;
+// Amélioration 42: Affichage du temps de session
+setInterval(() => {
+    let el = document.getElementById('session-time');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'session-time';
+        el.style = 'position:fixed;bottom:0;left:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    const d = Math.floor((Date.now() - sessionStats.startTime) / 1000);
+    el.textContent = 'Session: ' + Math.floor(d / 60) + 'm' + (d % 60) + 's';
+}, 10000);
 
-    // Amélioration 27: Historique des erreurs JS
-    let jsErrorLog = [];
-    window.addEventListener('error', e => {
-        jsErrorLog.push({
-            message: e.message,
-            file: e.filename,
-            line: e.lineno,
-            time: Date.now()
-        });
-        if (jsErrorLog.length > 100) jsErrorLog.shift();
-    });
+// Amélioration 43: Mode accessibilité (tabindex sur boutons)
+document.querySelectorAll('button').forEach(b => b.setAttribute('tabindex', '0'));
 
-    // Amélioration 28: Affichage d'un message d'erreur global
-    function showGlobalError(msg) {
-        let el = document.getElementById('global-error');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'global-error';
-            el.style = 'position:fixed;top:0;left:0;width:100vw;background:#c00;color:#fff;z-index:9999;padding:8px;text-align:center;font-weight:bold;';
-            document.body.appendChild(el);
-        }
-        el.textContent = msg;
-        setTimeout(() => { el.remove(); }, 8000);
+// Amélioration 44: Focus automatique sur la console à l'ouverture
+window.addEventListener('load', () => {
+    const c = document.getElementById('console-input');
+    if (c) c.focus();
+});
+
+// Amélioration 45: Affichage du statut du tunnel dans le titre
+function updateTunnelStatusTitle(status) {
+    document.title = 'MCPanel [' + status + ']';
+}
+
+
+// Amélioration 50: Mode veille automatique (désactive les requêtes)
+let sleepMode = false;
+setInterval(() => {
+    if (Date.now() - lastActivity > IDLE_TIMEOUT) sleepMode = true;
+    else sleepMode = false;
+}, 10000);
+
+// Amélioration 51: Affichage du statut du cache
+function showCacheStatus() {
+    let el = document.getElementById('cache-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'cache-status';
+        el.style = 'position:fixed;top:60px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'Cache: ' + (dataCache.servers ? 'OK' : 'Vide');
+}
 
-    // Amélioration 29: Mode dégradé si API down
-    async function checkApiHealth() {
-        try {
-            await fetch('/api/ping', {cache:'no-store'});
-            document.body.classList.remove('api-down');
-        } catch {
-            document.body.classList.add('api-down');
-            showGlobalError('API injoignable');
-        }
+// Amélioration 52: Affichage du nombre de notifications
+setInterval(() => {
+    let el = document.getElementById('notif-count');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'notif-count';
+        el.style = 'position:fixed;top:90px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
-    setInterval(checkApiHealth, 15000);
+    el.textContent = 'Notifications: ' + sessionStats.notifications;
+}, 15000);
 
-    // Amélioration 30: Limitation du spam de notifications
-    let lastNotifTime = 0;
-    function throttledNotify(title, body) {
-        if (Date.now() - lastNotifTime < 2000) return;
-        lastNotifTime = Date.now();
-        sendDesktopNotification(title, body);
+// Amélioration 53: Affichage du nombre de commandes envoyées
+setInterval(() => {
+    let el = document.getElementById('cmd-count');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'cmd-count';
+        el.style = 'position:fixed;top:120px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'Cmds: ' + sessionStats.commandsSent;
+}, 15000);
 
-    // Amélioration 31: Sauvegarde automatique des logs côté client
-    function saveLogsToFile() {
-        const blob = new Blob([allLogs.join('\n')], {type:'text/plain'});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'mcpanel_logs_' + (new Date()).toISOString().replace(/[:.]/g,'-') + '.txt';
-        a.click();
+// Amélioration 54: Affichage du nombre d'appels API
+setInterval(() => {
+    let el = document.getElementById('api-count');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'api-count';
+        el.style = 'position:fixed;top:150px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'API: ' + sessionStats.apiCalls;
+}, 15000);
 
-    // Amélioration 32: Nettoyage périodique du cache
-    setInterval(() => {
-        for (const k in dataCache) {
-            if (dataCache[k] && Date.now() - (dataCache.lastUpdate[k]||0) > CACHE_DURATION*2) {
-                dataCache[k] = null;
-            }
-        }
-    }, 60000);
-
-    // Amélioration 33: Mode compact automatique sur mobile
-    if (window.innerWidth < 600) userPreferences.compactMode = true;
-
-    // Amélioration 34: Affichage du temps de réponse API
-    async function timedFetch(url, options) {
-        const t0 = performance.now();
-        const res = await fetch(url, options);
-        const t1 = performance.now();
-        sessionStats.apiLastResponse = t1 - t0;
-        return res;
+// Amélioration 55: Affichage du nombre de joueurs en cache
+setInterval(() => {
+    let el = document.getElementById('player-cache-count');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'player-cache-count';
+        el.style = 'position:fixed;top:180px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'Players cache: ' + Object.keys(cachedPlayers).length;
+}, 20000);
 
-    // Amélioration 35: Affichage du statut réseau
-    window.addEventListener('online', () => showGlobalError('Connexion rétablie'));
-    window.addEventListener('offline', () => showGlobalError('Connexion perdue'));
-
-    // Amélioration 36: Limite de lignes dans la console
-    function trimConsoleLogs(max = userPreferences.logMaxLines) {
-        if (allLogs.length > max) allLogs = allLogs.slice(-max);
+// Amélioration 56: Affichage du statut du mode compact
+function showCompactStatus() {
+    let el = document.getElementById('compact-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'compact-status';
+        el.style = 'position:fixed;top:210px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'Compact: ' + (userPreferences.compactMode ? 'Oui' : 'Non');
+}
 
-    // Amélioration 37: Mode lecture seule pour la console
-    let consoleReadOnly = false;
-
-    // Amélioration 38: Affichage du nombre de joueurs connectés
-    function updatePlayerCount(count) {
-        const el = document.getElementById('player-count');
-        if (el) el.textContent = count;
+// Amélioration 57: Affichage du statut du mode sombre
+function showDarkStatus() {
+    let el = document.getElementById('dark-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'dark-status';
+        el.style = 'position:fixed;top:240px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'Dark: ' + (document.body.classList.contains('dark') ? 'Oui' : 'Non');
+}
 
-    // Amélioration 39: Mode sombre automatique selon l'heure
-    function autoDarkMode() {
-        const h = new Date().getHours();
-        document.body.classList.toggle('dark', h < 8 || h > 19);
+// Amélioration 58: Affichage du statut du mode veille
+function showSleepStatus() {
+    let el = document.getElementById('sleep-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'sleep-status';
+        el.style = 'position:fixed;top:270px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
-    setInterval(autoDarkMode, 60000);
+    el.textContent = 'Sleep: ' + (sleepMode ? 'Oui' : 'Non');
+}
 
-    // Amélioration 40: Protection contre double clic sur boutons critiques
-    function preventDoubleClick(btn) {
-        btn.disabled = true;
-        setTimeout(() => { btn.disabled = false; }, 1500);
+// Amélioration 59: Affichage du statut du mode démo
+function showDemoStatus() {
+    let el = document.getElementById('demo-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'demo-status';
+        el.style = 'position:fixed;top:300px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
+    el.textContent = 'Démo: ' + (demoMode ? 'Oui' : 'Non');
+}
 
-    // Amélioration 41: Affichage de la version du client
-    function showClientVersion() {
-        let el = document.getElementById('client-version');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'client-version';
-            el.style = 'position:fixed;bottom:0;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'MCPanel Ultimate v2.0 - 2025-12-06';
+// Amélioration 60: Affichage du statut du mode lecture seule
+function showReadOnlyStatus() {
+    let el = document.getElementById('readonly-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'readonly-status';
+        el.style = 'position:fixed;top:330px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
+        document.body.appendChild(el);
     }
-    showClientVersion();
-
-    // Amélioration 42: Affichage du temps de session
-    setInterval(() => {
-        let el = document.getElementById('session-time');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'session-time';
-            el.style = 'position:fixed;bottom:0;left:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        const d = Math.floor((Date.now() - sessionStats.startTime)/1000);
-        el.textContent = 'Session: ' + Math.floor(d/60) + 'm' + (d%60) + 's';
-    }, 10000);
-
-    // Amélioration 43: Mode accessibilité (tabindex sur boutons)
-    document.querySelectorAll('button').forEach(b => b.setAttribute('tabindex', '0'));
-
-    // Amélioration 44: Focus automatique sur la console à l'ouverture
-    window.addEventListener('load', () => {
-        const c = document.getElementById('console-input');
-        if (c) c.focus();
-    });
-
-    // Amélioration 45: Affichage du statut du tunnel dans le titre
-    function updateTunnelStatusTitle(status) {
-        document.title = 'MCPanel [' + status + ']';
-    }
-
-    // Amélioration 46: Affichage du ping serveur
-    async function updateServerPing() {
-        try {
-            const t0 = Date.now();
-            await fetch('/api/ping');
-            const t1 = Date.now();
-            let el = document.getElementById('server-ping');
-            if (!el) {
-                el = document.createElement('div');
-                el.id = 'server-ping';
-                el.style = 'position:fixed;top:0;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-                document.body.appendChild(el);
-            }
-            el.textContent = 'Ping: ' + (t1-t0) + 'ms';
-        } catch {}
-    }
-    setInterval(updateServerPing, 15000);
-
-    // Amélioration 47: Affichage du statut du backend
-    async function updateBackendStatus() {
-        try {
-            await fetch('/api/status');
-            document.body.classList.remove('backend-down');
-        } catch {
-            document.body.classList.add('backend-down');
-        }
-    }
-    setInterval(updateBackendStatus, 20000);
-
-    // Amélioration 48: Mode démo (lecture seule)
-    let demoMode = false;
-
-    // Amélioration 49: Affichage du nombre d'erreurs JS
-    setInterval(() => {
-        let el = document.getElementById('js-error-count');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'js-error-count';
-            el.style = 'position:fixed;top:30px;right:0;background:#c00;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'JS Errors: ' + jsErrorLog.length;
-    }, 12000);
-
-    // Amélioration 50: Mode veille automatique (désactive les requêtes)
-    let sleepMode = false;
-    setInterval(() => {
-        if (Date.now() - lastActivity > IDLE_TIMEOUT) sleepMode = true;
-        else sleepMode = false;
-    }, 10000);
-
-    // Amélioration 51: Affichage du statut du cache
-    function showCacheStatus() {
-        let el = document.getElementById('cache-status');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'cache-status';
-            el.style = 'position:fixed;top:60px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Cache: ' + (dataCache.servers ? 'OK' : 'Vide');
-    }
-
-    // Amélioration 52: Affichage du nombre de notifications
-    setInterval(() => {
-        let el = document.getElementById('notif-count');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'notif-count';
-            el.style = 'position:fixed;top:90px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Notifications: ' + sessionStats.notifications;
-    }, 15000);
-
-    // Amélioration 53: Affichage du nombre de commandes envoyées
-    setInterval(() => {
-        let el = document.getElementById('cmd-count');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'cmd-count';
-            el.style = 'position:fixed;top:120px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Cmds: ' + sessionStats.commandsSent;
-    }, 15000);
-
-    // Amélioration 54: Affichage du nombre d'appels API
-    setInterval(() => {
-        let el = document.getElementById('api-count');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'api-count';
-            el.style = 'position:fixed;top:150px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'API: ' + sessionStats.apiCalls;
-    }, 15000);
-
-    // Amélioration 55: Affichage du nombre de joueurs en cache
-    setInterval(() => {
-        let el = document.getElementById('player-cache-count');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'player-cache-count';
-            el.style = 'position:fixed;top:180px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Players cache: ' + Object.keys(cachedPlayers).length;
-    }, 20000);
-
-    // Amélioration 56: Affichage du statut du mode compact
-    function showCompactStatus() {
-        let el = document.getElementById('compact-status');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'compact-status';
-            el.style = 'position:fixed;top:210px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Compact: ' + (userPreferences.compactMode ? 'Oui' : 'Non');
-    }
-
-    // Amélioration 57: Affichage du statut du mode sombre
-    function showDarkStatus() {
-        let el = document.getElementById('dark-status');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'dark-status';
-            el.style = 'position:fixed;top:240px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Dark: ' + (document.body.classList.contains('dark') ? 'Oui' : 'Non');
-    }
-
-    // Amélioration 58: Affichage du statut du mode veille
-    function showSleepStatus() {
-        let el = document.getElementById('sleep-status');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'sleep-status';
-            el.style = 'position:fixed;top:270px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Sleep: ' + (sleepMode ? 'Oui' : 'Non');
-    }
-
-    // Amélioration 59: Affichage du statut du mode démo
-    function showDemoStatus() {
-        let el = document.getElementById('demo-status');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'demo-status';
-            el.style = 'position:fixed;top:300px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Démo: ' + (demoMode ? 'Oui' : 'Non');
-    }
-
-    // Amélioration 60: Affichage du statut du mode lecture seule
-    function showReadOnlyStatus() {
-        let el = document.getElementById('readonly-status');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'readonly-status';
-            el.style = 'position:fixed;top:330px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-            document.body.appendChild(el);
-        }
-        el.textContent = 'Lecture seule: ' + (consoleReadOnly ? 'Oui' : 'Non');
-    }
+    el.textContent = 'Lecture seule: ' + (consoleReadOnly ? 'Oui' : 'Non');
+}
 
 // ================================
 // Améliorations 61 à 100 : Fonctionnalités avancées
@@ -874,7 +831,7 @@ function exportSessionData() {
         userPreferences,
         exportDate: new Date().toISOString()
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'mcpanel_session_' + Date.now() + '.json';
@@ -1374,13 +1331,13 @@ function getSystemHealth() {
     if (sleepMode) score -= 10;
     if (apiCallCount > 3) score -= 15;
     score = Math.max(0, Math.min(100, score));
-    
+
     let status = 'excellent';
     if (score < 90) status = 'good';
     if (score < 70) status = 'fair';
     if (score < 50) status = 'poor';
     if (score < 30) status = 'critical';
-    
+
     return { score, status };
 }
 
@@ -1459,7 +1416,7 @@ function applyVisualSettings() {
 
     const html = document.documentElement;
 
-    
+
 
     // Shader
 
@@ -1471,13 +1428,13 @@ function applyVisualSettings() {
 
     }
 
-    
+
 
     // Fullbright
 
     html.setAttribute('data-fullbright', visualSettings.fullbright);
 
-    
+
 
     // Upscaling
 
@@ -1489,7 +1446,7 @@ function applyVisualSettings() {
 
     }
 
-    
+
 
     // Update UI
 
@@ -1509,7 +1466,7 @@ function updateVisualUI() {
 
     });
 
-    
+
 
     // Upscaling buttons
 
@@ -1519,7 +1476,7 @@ function updateVisualUI() {
 
     });
 
-    
+
 
     // Fullbright toggle
 
@@ -1537,7 +1494,7 @@ function setShaderPreset(shader) {
 
     saveVisualSettings();
 
-    
+
 
     const shaderNames = {
 
@@ -1557,11 +1514,11 @@ function setShaderPreset(shader) {
 
     };
 
-    
+
 
     showToast(`Shader: ${shaderNames[shader] || shader}`, 'info');
 
-    
+
 
     // Animation de transition
 
@@ -1591,7 +1548,7 @@ function setUpscaling(mode) {
 
     saveVisualSettings();
 
-    
+
 
     const modeNames = {
 
@@ -1609,7 +1566,7 @@ function setUpscaling(mode) {
 
     };
 
-    
+
 
     showToast(`Upscaling: ${modeNames[mode]}`, 'info');
 
@@ -1627,7 +1584,7 @@ function initVisualEffectsControls() {
 
             setShaderPreset(btn.dataset.shader);
 
-            
+
 
             // Animation de feedback
 
@@ -1639,7 +1596,7 @@ function initVisualEffectsControls() {
 
     });
 
-    
+
 
     // Fullbright toggle
 
@@ -1655,7 +1612,7 @@ function initVisualEffectsControls() {
 
     }
 
-    
+
 
     // Upscaling buttons
 
@@ -1665,7 +1622,7 @@ function initVisualEffectsControls() {
 
             setUpscaling(btn.dataset.upscaling);
 
-            
+
 
             // Animation de feedback
 
@@ -1677,7 +1634,7 @@ function initVisualEffectsControls() {
 
     });
 
-    
+
 
     // Appliquer les paramètres chargés
 
@@ -1745,13 +1702,13 @@ function applyPerformanceMode() {
 
     const html = document.documentElement;
 
-    
+
 
     // Supprimer les anciens modes
 
     html.removeAttribute('data-perf');
 
-    
+
 
     // Appliquer le nouveau mode
 
@@ -1765,11 +1722,11 @@ function applyPerformanceMode() {
 
     }
 
-    
+
 
     // Ajuster les intervalles selon le mode
 
-    switch(performanceSettings.mode) {
+    switch (performanceSettings.mode) {
 
         case 'eco':
 
@@ -1803,7 +1760,7 @@ function applyPerformanceMode() {
 
     }
 
-    
+
 
     // Mettre à jour l'intervalle des métriques
 
@@ -1815,7 +1772,7 @@ function applyPerformanceMode() {
 
     }
 
-    
+
 
     // Mettre à jour l'UI des paramètres
 
@@ -1829,11 +1786,11 @@ function updatePerformanceUI() {
 
     const gpuToggle = document.getElementById('gpu-toggle');
 
-    
+
 
     if (gpuToggle) gpuToggle.checked = performanceSettings.gpuEnabled;
 
-    
+
 
     // Mettre à jour les radio buttons
 
@@ -1894,41 +1851,122 @@ const apiStats = {
     totalTime: 0
 };
 
+// Fonction pour récupérer un nouveau token CSRF
+async function refreshCsrfToken() {
+    try {
+        const response = await fetch('/api/csrf-token', {
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            const metaTag = document.querySelector('meta[name="csrf-token"]');
+            if (metaTag && data.csrf_token) {
+                metaTag.setAttribute('content', data.csrf_token);
+                console.log('[CSRF] Token mis à jour avec succès');
+                return true;
+            }
+        }
+    } catch (e) {
+        console.error('[CSRF] Erreur lors de la récupération du token:', e);
+    }
+    return false;
+}
+
+// Amélioration Sécurité 1: Récupérer le token CSRF de manière robuste
+function getCsrfToken() {
+    // Essayer plusieurs sources
+    let token = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!token) {
+        token = document.querySelector('meta[name="csrf_token"]')?.content;
+    }
+    if (!token) {
+        token = document.querySelector('input[name="csrf_token"]')?.value;
+    }
+    if (!token) {
+        // Chercher dans les cookies
+        const cookies = document.cookie.split(';');
+        for (const cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrf_token') {
+                token = value;
+                break;
+            }
+        }
+    }
+    return token || '';
+}
+
+// Amélioration Sécurité 2: Mise à jour automatique du token au chargement
+async function ensureCsrfToken() {
+    const token = getCsrfToken();
+    if (!token) {
+        console.warn('[CSRF] Token manquant, tentative de récupération...');
+        await refreshCsrfToken();
+    }
+    return getCsrfToken();
+}
+
 // Correction 5: apiFetch robuste avec timeout, retry, et gestion d'erreurs
 async function apiFetch(url, options = {}, retries = 0) {
     const startTime = performance.now();
     apiStats.totalRequests++;
     sessionStats.apiCalls++;
-    
+
     // Vérifier la connexion
     if (!navigator.onLine) {
         sessionStats.errors++;
         throw new Error('Pas de connexion internet');
     }
+
+    // Amélioration Sécurité 3: Toujours récupérer le token CSRF frais
+    let csrfToken = getCsrfToken();
     
-    // Options par défaut
-    const defaultOptions = {
-        credentials: 'include',
-        headers: {
-            'Accept': 'application/json',
-            ...options.headers
-        }
+    // Si pas de token et c'est une requête POST/PUT/DELETE, en récupérer un
+    const method = (options.method || 'GET').toUpperCase();
+    if (!csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+        console.warn('[CSRF] Token manquant pour requête ' + method + ', récupération...');
+        await refreshCsrfToken();
+        csrfToken = getCsrfToken();
+    }
+    
+    // Debug CSRF
+    if (!csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+        console.error('[CSRF] ATTENTION: Token toujours manquant après refresh!');
+    }
+
+    // Amélioration Sécurité 4: Fusionner correctement les headers avec CSRF en priorité
+    const mergedHeaders = {
+        'Accept': 'application/json',
+        ...(options.body && typeof options.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
     };
     
+    // Amélioration Sécurité 5: Toujours ajouter le CSRF token en dernier (priorité maximale)
+    if (csrfToken) {
+        mergedHeaders['X-CSRF-Token'] = csrfToken;
+    }
+
+    const defaultOptions = {
+        credentials: 'include',
+        headers: mergedHeaders,
+        timeout: 10000
+    };
+
     // Créer un AbortController pour le timeout
     const controller = new AbortController();
-    const timeout = options.timeout || API_TIMEOUT;
+    const timeout = options.timeout || defaultOptions.timeout || API_TIMEOUT;
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
+
     try {
         const response = await fetch(url, {
             ...defaultOptions,
             ...options,
             signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         // Correction 6: Gérer les erreurs HTTP
         if (!response.ok) {
             // Correction 7: Session expirée
@@ -1936,7 +1974,17 @@ async function apiFetch(url, options = {}, retries = 0) {
                 handleSessionExpired();
                 throw new Error('Session expirée');
             }
-            
+
+            // Correction CSRF: Récupérer un nouveau token et réessayer
+            if (response.status === 403) {
+                const errorData = await response.clone().json().catch(() => ({}));
+                if (errorData.code === 'CSRF_ERROR' && retries < 1) {
+                    console.warn('[CSRF] Token invalide, récupération d\'un nouveau token...');
+                    await refreshCsrfToken();
+                    return apiFetch(url, options, retries + 1);
+                }
+            }
+
             // Correction 8: Rate limiting
             if (response.status === 429) {
                 const retryAfter = response.headers.get('Retry-After') || 5;
@@ -1945,24 +1993,24 @@ async function apiFetch(url, options = {}, retries = 0) {
                     return apiFetch(url, options, retries + 1);
                 }
             }
-            
+
             // Correction 9: Erreurs serveur (5xx) - retry
             if (response.status >= 500 && retries < MAX_RETRIES) {
                 await sleep(RETRY_DELAY * (retries + 1));
                 return apiFetch(url, options, retries + 1);
             }
         }
-        
+
         apiStats.successfulRequests++;
         apiStats.totalTime += performance.now() - startTime;
-        
+
         return response;
-        
+
     } catch (error) {
         clearTimeout(timeoutId);
         apiStats.failedRequests++;
         sessionStats.errors++;
-        
+
         // Correction 10: Timeout - retry
         if (error.name === 'AbortError') {
             console.warn(`Timeout pour ${url}`);
@@ -1972,7 +2020,7 @@ async function apiFetch(url, options = {}, retries = 0) {
             }
             throw new Error('La requête a expiré');
         }
-        
+
         // Correction 11: Erreur réseau - retry
         if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
             if (retries < MAX_RETRIES) {
@@ -1980,7 +2028,7 @@ async function apiFetch(url, options = {}, retries = 0) {
                 return apiFetch(url, options, retries + 1);
             }
         }
-        
+
         throw error;
     }
 }
@@ -2028,7 +2076,7 @@ async function apiJson(url, options = {}) {
 async function apiPost(url, data) {
     return apiJson(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        
         body: JSON.stringify(data)
     });
 }
@@ -2038,7 +2086,7 @@ function debounce(func, wait, immediate = false) {
     let timeout;
     return function executedFunction(...args) {
         const context = this;
-        const later = function() {
+        const later = function () {
             timeout = null;
             if (!immediate) func.apply(context, args);
         };
@@ -2053,7 +2101,7 @@ function debounce(func, wait, immediate = false) {
 function throttle(func, limit) {
     let inThrottle;
     let lastResult;
-    return function(...args) {
+    return function (...args) {
         const context = this;
         if (!inThrottle) {
             lastResult = func.apply(context, args);
@@ -2263,7 +2311,7 @@ async function copyToClipboard(text) {
 function scrollToElement(el, options = {}) {
     if (typeof el === 'string') el = getEl(el);
     if (!el) return;
-    
+
     el.scrollIntoView({
         behavior: options.smooth !== false ? 'smooth' : 'auto',
         block: options.block || 'center',
@@ -2275,7 +2323,7 @@ function scrollToElement(el, options = {}) {
 function isInViewport(el) {
     if (typeof el === 'string') el = getEl(el);
     if (!el) return false;
-    
+
     const rect = el.getBoundingClientRect();
     return (
         rect.top >= 0 &&
@@ -2288,7 +2336,7 @@ function isInViewport(el) {
 // Correction 34: Create element helper
 function createElement(tag, props = {}, children = []) {
     const el = document.createElement(tag);
-    
+
     Object.entries(props).forEach(([key, value]) => {
         if (key === 'className') el.className = value;
         else if (key === 'innerHTML') el.innerHTML = value;
@@ -2304,7 +2352,7 @@ function createElement(tag, props = {}, children = []) {
         }
         else el.setAttribute(key, value);
     });
-    
+
     children.forEach(child => {
         if (typeof child === 'string') {
             el.appendChild(document.createTextNode(child));
@@ -2312,7 +2360,7 @@ function createElement(tag, props = {}, children = []) {
             el.appendChild(child);
         }
     });
-    
+
     return el;
 }
 
@@ -2331,7 +2379,7 @@ function confirmDialog(message, title = 'Confirmation') {
             </div>
         `;
         document.body.appendChild(modal);
-        
+
         modal.addEventListener('click', (e) => {
             const action = e.target.dataset.action;
             if (action) {
@@ -2353,12 +2401,12 @@ function showToastQueued(message, type = 'info', duration = 3000) {
 
 function processToastQueue() {
     if (toastShowing || toastQueue.length === 0) return;
-    
+
     toastShowing = true;
     const { message, type, duration } = toastQueue.shift();
-    
+
     showToast(message, type);
-    
+
     setTimeout(() => {
         toastShowing = false;
         processToastQueue();
@@ -2370,7 +2418,7 @@ const loadingStates = new Map();
 
 function setLoading(name, isLoading = true) {
     loadingStates.set(name, isLoading);
-    
+
     const btn = getEl(`btn-${name}`);
     if (btn) {
         btn.disabled = isLoading;
@@ -2419,15 +2467,15 @@ function formatDate(date, format = 'short') {
     if (!date) return '-';
     const d = new Date(date);
     if (isNaN(d.getTime())) return '-';
-    
+
     if (format === 'short') return d.toLocaleDateString('fr-FR');
-    if (format === 'long') return d.toLocaleDateString('fr-FR', { 
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+    if (format === 'long') return d.toLocaleDateString('fr-FR', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
     if (format === 'time') return d.toLocaleTimeString('fr-FR');
     if (format === 'full') return d.toLocaleString('fr-FR');
     if (format === 'relative') return getRelativeTime(d);
-    
+
     return d.toLocaleString('fr-FR');
 }
 
@@ -2438,7 +2486,7 @@ function getRelativeTime(date) {
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
-    
+
     if (seconds < 60) return 'À l\'instant';
     if (minutes < 60) return `Il y a ${minutes} min`;
     if (hours < 24) return `Il y a ${hours}h`;
@@ -2516,18 +2564,18 @@ const eventBus = {
 // Correction 48: Performance monitor
 const perfMonitor = {
     marks: new Map(),
-    
+
     start(name) {
         this.marks.set(name, performance.now());
     },
-    
+
     end(name, log = false) {
         const start = this.marks.get(name);
         if (!start) return 0;
-        
+
         const duration = performance.now() - start;
         this.marks.delete(name);
-        
+
         if (log) console.log(`⏱️ ${name}: ${duration.toFixed(2)}ms`);
         return duration;
     }
@@ -2542,7 +2590,7 @@ const browserFeatures = {
         catch (e) { return false; }
     })(),
     webgl: (() => {
-        try { 
+        try {
             const canvas = document.createElement('canvas');
             return !!(window.WebGLRenderingContext && canvas.getContext('webgl'));
         } catch (e) { return false; }
@@ -2551,18 +2599,18 @@ const browserFeatures = {
 };
 
 // Correction 50: Global error handler amélioré
-window.onerror = function(message, source, lineno, colno, error) {
+window.onerror = function (message, source, lineno, colno, error) {
     console.error('Global error:', { message, source, lineno, colno, error });
     sessionStats.errors++;
-    
+
     // Ne pas afficher les erreurs de ressources externes
     if (source && !source.includes(window.location.hostname)) return;
-    
+
     showToast('Une erreur JavaScript est survenue', 'error');
     return false;
 };
 
-window.onunhandledrejection = function(event) {
+window.onunhandledrejection = function (event) {
     console.error('Unhandled promise rejection:', event.reason);
     sessionStats.errors++;
 };
@@ -2570,37 +2618,47 @@ window.onunhandledrejection = function(event) {
 // Init
 
 window.addEventListener('DOMContentLoaded', async () => {
+    // Amélioration Sécurité 15: Initialiser le token CSRF en premier
+    await ensureCsrfToken();
+    
     // Amélioration 21: Charger toutes les préférences en premier
     loadUserPreferences();
     loadPerformanceSettings();
     loadVisualSettings();
-    
+
     // Amélioration 22: Setup des détections et raccourcis
     setupConnectionDetection();
     setupIdleDetection();
     setupGlobalShortcuts();
     requestNotificationPermission();
-    
+
     await checkAuth();
     loadTheme();
-    
+
     // Initialiser les contrôles d'effets visuels
     initVisualEffectsControls();
-    
+
     await Promise.all([
         loadServerList(),
         loadVersions(),
         loadNotifications(),
         loadSystemMetrics()
     ]);
-    
+
     startMetricsPolling();
     initCharts();
-    
+
     // Amélioration 23: Afficher les infos de session
     console.log('🎮 MCPanel v2.0 loaded');
+    console.log('🔒 CSRF Token initialisé:', getCsrfToken() ? 'OK' : 'ERREUR');
     console.log('💡 Raccourcis: F1-F5 onglets, Ctrl+S sauvegarder, ↑↓ historique, Tab autocomplétion');
     console.log(`📊 Session démarrée à ${new Date().toLocaleTimeString()}`);
+    
+    // Amélioration Sécurité 16: Rafraîchir le token CSRF périodiquement
+    setInterval(async () => {
+        await refreshCsrfToken();
+        console.log('[CSRF] Token rafraîchi automatiquement');
+    }, 15 * 60 * 1000); // Toutes les 15 minutes
 });
 
 // Auth
@@ -2645,19 +2703,19 @@ function updateUserUI() {
 
     if (!currentUser) return;
 
-    
+
 
     const userName = document.getElementById('user-name');
 
     const userRole = document.getElementById('user-role');
 
-    
+
 
     if (userName) userName.textContent = currentUser.username;
 
     if (userRole) userRole.textContent = currentUser.role === 'admin' ? 'Administrateur' : 'Utilisateur';
 
-    
+
 
     document.querySelectorAll('.admin-only').forEach(el => {
 
@@ -2727,7 +2785,7 @@ function showSection(sectionName) {
 
     if (section) section.classList.add('active');
 
-    
+
 
     document.querySelectorAll('.nav-item').forEach(item => {
 
@@ -2735,7 +2793,7 @@ function showSection(sectionName) {
 
     });
 
-    
+
 
     if (sectionName === 'settings') loadSettings();
 
@@ -2746,9 +2804,74 @@ function showSection(sectionName) {
 
 
 function openSettings() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+        modal.style.display = 'block';
+        loadNotificationConfig();
+    }
+}
 
-    showSection('settings');
+function closeSettings() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) modal.style.display = 'none';
+}
 
+// Notifications Config
+async function loadNotificationConfig() {
+    try {
+        const res = await apiFetch('/api/notifications/config');
+        const config = await res.json();
+
+        if (config.discord) {
+            document.getElementById('discord-enabled').checked = config.discord.enabled;
+            document.getElementById('discord-webhook').value = config.discord.webhook_url || '';
+        }
+    } catch (e) {
+        console.error("Error loading notification config", e);
+    }
+}
+
+async function saveNotificationConfig() {
+    const enabled = document.getElementById('discord-enabled').checked;
+    const webhook = document.getElementById('discord-webhook').value;
+
+    const config = {
+        discord: {
+            enabled: enabled,
+            webhook_url: webhook,
+            events: ["server_start", "server_stop", "crash", "backup", "alert"]
+        }
+    };
+
+    try {
+        const res = await apiFetch('/api/notifications/config', {
+            method: 'POST',
+            body: JSON.stringify(config)
+        });
+        const data = await res.json();
+        if (data.success) showToast('success', "Configuration sauvegardée");
+        else showToast('error', "Erreur sauvegarde");
+    } catch (e) {
+        showToast('error', "Erreur API");
+    }
+}
+
+async function testDiscordWebhook() {
+    const webhook = document.getElementById('discord-webhook').value;
+    if (!webhook) return showToast('error', "URL Webhook manquante");
+
+    try {
+        showToast('info', "Test en cours...");
+        const res = await apiFetch('/api/notifications/test/discord', {
+            method: 'POST',
+            body: JSON.stringify({ webhook_url: webhook })
+        });
+        const data = await res.json();
+        if (data.success) showToast('success', "Test réussi !");
+        else showToast('error', data.message);
+    } catch (e) {
+        showToast('error', "Erreur Test");
+    }
 }
 
 
@@ -2770,11 +2893,35 @@ let lastMetricsUpdate = 0;
 function startMetricsPolling() {
 
     loadSystemMetrics();
+    loadMetricsHistory(); // Load historical data on start
 
     // Utilise l'intervalle défini par les paramètres de performance
 
     metricsInterval = setInterval(loadSystemMetrics, performanceSettings.refreshRate);
 
+}
+
+async function loadMetricsHistory() {
+    try {
+        const res = await apiFetch('/api/system/history?limit=60');
+        const data = await res.json();
+
+        if (data.history) {
+            metricsHistory.timestamps = [];
+            metricsHistory.cpu = [];
+            metricsHistory.ram = [];
+
+            data.history.forEach(point => {
+                const time = new Date(point.timestamp).toLocaleTimeString();
+                metricsHistory.timestamps.push(time);
+                metricsHistory.cpu.push(point.cpu);
+                metricsHistory.ram.push(point.ram_percent);
+            });
+            updateMainChart();
+        }
+    } catch (e) {
+        console.error("Failed to load metrics history", e);
+    }
 }
 
 
@@ -2789,7 +2936,7 @@ async function loadSystemMetrics() {
 
     lastMetricsUpdate = now;
 
-    
+
 
     try {
 
@@ -2797,7 +2944,7 @@ async function loadSystemMetrics() {
 
         const data = await response.json();
 
-        
+
 
         const cpuPercent = data.cpu?.percent || 0;
 
@@ -2813,7 +2960,7 @@ async function loadSystemMetrics() {
 
         const diskPercent = data.disk?.percent || 0;
 
-        
+
 
         // Batch DOM updates
 
@@ -2831,7 +2978,7 @@ async function loadSystemMetrics() {
 
             updateElement('mini-disk', diskPercent.toFixed(0) + '%');
 
-            
+
 
             const diskProgress = document.getElementById('disk-progress');
 
@@ -2839,11 +2986,11 @@ async function loadSystemMetrics() {
 
         });
 
-        
+
 
         // Limiter l'historique selon le mode de performance
 
-        const time = new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
+        const time = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
         metricsHistory.cpu.push(cpuPercent);
 
@@ -2851,7 +2998,7 @@ async function loadSystemMetrics() {
 
         metricsHistory.timestamps.push(time);
 
-        
+
 
         const maxHistory = performanceSettings.chartPoints;
 
@@ -2865,7 +3012,7 @@ async function loadSystemMetrics() {
 
         }
 
-        
+
 
         if (metricsLoaded) {
 
@@ -2913,21 +3060,21 @@ function initCharts() {
 
     if (performanceSettings.mode === 'eco') return;
 
-    
+
 
     const mainCtx = document.getElementById('main-chart');
 
     if (!mainCtx || typeof Chart === 'undefined') return;
 
-    
+
 
     // Désactiver les animations en mode balanced
 
-    const animationConfig = performanceSettings.mode === 'balanced' ? 
+    const animationConfig = performanceSettings.mode === 'balanced' ?
 
         { duration: 0 } : { duration: 400, easing: 'easeOutQuart' };
 
-    
+
 
     mainChart = new Chart(mainCtx, {
 
@@ -2939,17 +3086,17 @@ function initCharts() {
 
             datasets: [
 
-                { 
+                {
 
-                    label: 'CPU %', 
+                    label: 'CPU %',
 
-                    data: [], 
+                    data: [],
 
-                    borderColor: '#3b82f6', 
+                    borderColor: '#3b82f6',
 
-                    backgroundColor: 'rgba(59, 130, 246, 0.08)', 
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
 
-                    fill: true, 
+                    fill: true,
 
                     tension: 0.3,
 
@@ -2961,17 +3108,17 @@ function initCharts() {
 
                 },
 
-                { 
+                {
 
-                    label: 'RAM %', 
+                    label: 'RAM %',
 
-                    data: [], 
+                    data: [],
 
-                    borderColor: '#10b981', 
+                    borderColor: '#10b981',
 
-                    backgroundColor: 'rgba(16, 185, 129, 0.08)', 
+                    backgroundColor: 'rgba(16, 185, 129, 0.08)',
 
-                    fill: true, 
+                    fill: true,
 
                     tension: 0.3,
 
@@ -3003,37 +3150,37 @@ function initCharts() {
 
             },
 
-            plugins: { 
+            plugins: {
 
-                legend: { 
+                legend: {
 
-                    position: 'top', 
+                    position: 'top',
 
-                    labels: { color: '#666666', font: { size: 12 } } 
+                    labels: { color: '#666666', font: { size: 12 } }
 
-                } 
+                }
 
             },
 
             scales: {
 
-                x: { 
+                x: {
 
-                    grid: { color: 'rgba(255, 255, 255, 0.04)' }, 
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
 
-                    ticks: { color: '#666666', maxTicksLimit: 8, font: { size: 10 } } 
+                    ticks: { color: '#666666', maxTicksLimit: 8, font: { size: 10 } }
 
                 },
 
-                y: { 
+                y: {
 
-                    min: 0, 
+                    min: 0,
 
-                    max: 100, 
+                    max: 100,
 
-                    grid: { color: 'rgba(255, 255, 255, 0.04)' }, 
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
 
-                    ticks: { color: '#666666', font: { size: 10 } } 
+                    ticks: { color: '#666666', font: { size: 10 } }
 
                 }
 
@@ -3083,7 +3230,7 @@ async function loadServerList(forceRefresh = false) {
 
         const servers = await response.json();
 
-        
+
 
         // Ne reconstruire le DOM que si la liste a change ou si forceRefresh
 
@@ -3091,7 +3238,7 @@ async function loadServerList(forceRefresh = false) {
 
         lastServerList = servers;
 
-        
+
 
         // Sidebar - toujours mettre a jour car leger
 
@@ -3121,7 +3268,7 @@ async function loadServerList(forceRefresh = false) {
 
         }
 
-        
+
 
         // Dashboard table - seulement si change
 
@@ -3145,7 +3292,7 @@ async function loadServerList(forceRefresh = false) {
 
         }
 
-        
+
 
         // Servers grid - seulement si change
 
@@ -3175,7 +3322,7 @@ async function loadServerList(forceRefresh = false) {
 
         }
 
-        
+
 
         // Mettre a jour les compteurs
 
@@ -3183,7 +3330,7 @@ async function loadServerList(forceRefresh = false) {
 
         updateElement('dash-servers-online', 0);
 
-        
+
 
         // Mettre a jour les statuts en arrie¨re-plan sans bloquer
 
@@ -3219,7 +3366,7 @@ async function updateAllServerStatuses(servers) {
 
             if (isOnline) onlineCount++;
 
-            
+
 
             // Mise a jour silencieuse des indicateurs
 
@@ -3227,7 +3374,7 @@ async function updateAllServerStatuses(servers) {
 
             if (statusDot) statusDot.className = `status-dot-small ${isOnline ? 'online' : 'offline'}`;
 
-            
+
 
             const cardStatus = document.getElementById(`card-status-${server}`);
 
@@ -3237,7 +3384,7 @@ async function updateAllServerStatuses(servers) {
 
             }
 
-        } catch (e) {}
+        } catch (e) { }
 
     }
 
@@ -3253,7 +3400,7 @@ function selectServer(serverName) {
 
     showSection('servers');
 
-    
+
 
     const listView = document.getElementById('servers-list-view');
 
@@ -3261,7 +3408,7 @@ function selectServer(serverName) {
 
     const detailName = document.getElementById('detail-server-name');
 
-    
+
 
     if (listView) listView.style.display = 'none';
 
@@ -3269,13 +3416,13 @@ function selectServer(serverName) {
 
     if (detailName) detailName.textContent = serverName;
 
-    
+
 
     // Mettre a jour l'adresse du serveur
 
     updateServerAddressDisplay(serverName, '25565');
 
-    
+
 
     document.querySelectorAll('.server-item').forEach(item => {
 
@@ -3283,7 +3430,7 @@ function selectServer(serverName) {
 
     });
 
-    
+
 
     updateStatus();
 
@@ -3303,19 +3450,19 @@ function showServersList() {
 
     stopLogStream();
 
-    
+
 
     const listView = document.getElementById('servers-list-view');
 
     const detailView = document.getElementById('server-detail-view');
 
-    
+
 
     if (listView) listView.style.display = 'block';
 
     if (detailView) detailView.style.display = 'none';
 
-    
+
 
     document.querySelectorAll('.server-item').forEach(item => item.classList.remove('active'));
 
@@ -3363,7 +3510,7 @@ async function updateStatus() {
 
         const status = await response.json();
 
-        
+
 
         const badge = document.getElementById('detail-status');
 
@@ -3375,7 +3522,7 @@ async function updateStatus() {
 
         const restartBtn = document.getElementById('btn-restart');
 
-        
+
 
         if (status.running) {
 
@@ -3441,7 +3588,7 @@ async function serverAction(action) {
 
         showToast('info', `${action === 'start' ? 'Demarrage' : action === 'stop' ? 'Arreªt' : 'Redemarrage'} en cours...`);
 
-        const response = await apiFetch(`/api/server/${currentServer}/${action}`, { 
+        const response = await apiFetch(`/api/server/${currentServer}/${action}`, {
 
             method: 'POST',
 
@@ -3519,11 +3666,11 @@ async function deleteServer() {
 
     if (!confirm(`Supprimer le serveur "${currentServer}" ?\n\nCette action est irreversible !`)) return;
 
-    
+
 
     const serverToDelete = currentServer;
 
-    
+
 
     try {
 
@@ -3585,7 +3732,7 @@ function switchTab(viewName) {
 
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
 
-    
+
 
     const view = document.getElementById(`view-${viewName}`);
 
@@ -3595,13 +3742,14 @@ function switchTab(viewName) {
 
     if (tab) tab.classList.add('active');
 
-    
+
 
     if (viewName === 'console') startLogStream();
+    if (viewName === 'files') loadFiles('');
 
     else stopLogStream();
 
-    
+
 
     if (viewName === 'players') loadPlayers();
 
@@ -3679,23 +3827,23 @@ function renderLogs() {
 
     logRenderPending = true;
 
-    
+
 
     requestAnimationFrame(() => {
 
         logRenderPending = false;
 
-        
+
 
         const logsDiv = document.getElementById('logs');
 
         if (!logsDiv) return;
 
-        
+
 
         const searchTerm = document.getElementById('log-search')?.value.toLowerCase() || '';
 
-        
+
 
         let filteredLogs = allLogs.filter(line => {
 
@@ -3715,7 +3863,7 @@ function renderLogs() {
 
         });
 
-        
+
 
         // Limiter le nombre de logs affichés pour les performances
 
@@ -3727,7 +3875,7 @@ function renderLogs() {
 
         }
 
-        
+
 
         if (filteredLogs.length === 0) {
 
@@ -3737,7 +3885,7 @@ function renderLogs() {
 
         }
 
-        
+
 
         // Utiliser DocumentFragment pour de meilleures performances
 
@@ -3761,13 +3909,13 @@ function renderLogs() {
 
         });
 
-        
+
 
         logsDiv.innerHTML = '';
 
         logsDiv.appendChild(fragment);
 
-        
+
 
         if (autoScroll) logsDiv.scrollTop = logsDiv.scrollHeight;
 
@@ -3838,7 +3986,7 @@ async function sendCommand() {
     const input = document.getElementById('cmd-input');
     const command = input.value.trim();
     if (!command) return;
-    
+
     // Amélioration 25: Ajouter à l'historique
     if (command !== commandHistory[0]) {
         commandHistory.unshift(command);
@@ -3848,24 +3996,24 @@ async function sendCommand() {
         saveCommandHistory();
     }
     commandHistoryIndex = -1;
-    
+
     // Amélioration 26: Incrémenter les stats
     sessionStats.commandsSent++;
     sessionStats.apiCalls++;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/command`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify({ command })
         });
         const result = await response.json();
         if (result.status === 'success') {
             input.value = '';
-            
+
             // Amélioration 27: Afficher la commande dans la console
             appendCommandToConsole(command);
-            
+
             setTimeout(loadLogs, 500);
         } else {
             showToast('error', result.message || 'Erreur');
@@ -3912,9 +4060,9 @@ let onlinePlayersCache = []; // Liste des joueurs en ligne
 
 async function loadPlayers() {
     if (!currentServer) return;
-    
+
     sessionStats.apiCalls++;
-    
+
     try {
         // Récupérer les joueurs en ligne via RCON ou logs
         let onlinePlayers = [];
@@ -3931,23 +4079,23 @@ async function loadPlayers() {
             console.warn('Impossible de récupérer les joueurs en ligne:', e);
         }
         onlinePlayersCache = onlinePlayers.map(p => p.name ? p.name.toLowerCase() : p.toLowerCase());
-        
+
         // Récupérer tous les joueurs (usercache.json)
         const response = await apiFetch(`/api/server/${currentServer}/players`);
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
             throw new Error('Réponse invalide');
         }
-        
+
         const allPlayers = await response.json();
         const grid = document.getElementById('players-grid');
         if (!grid) return;
-        
+
         // Mettre à jour le compteur
         const onlineCount = onlinePlayers.length;
         const totalCount = allPlayers ? allPlayers.length : 0;
         updatePlayerTabCount(onlineCount, totalCount);
-        
+
         if (!allPlayers || allPlayers.length === 0) {
             grid.innerHTML = `
                 <div class="empty-state">
@@ -3958,12 +4106,12 @@ async function loadPlayers() {
             `;
             return;
         }
-        
+
         // Cache des joueurs
         allPlayers.forEach(p => {
             cachedPlayers[p.name] = { ...p, lastSeen: Date.now() };
         });
-        
+
         // Trier: en ligne d'abord, puis par nom
         const sortedPlayers = [...allPlayers].sort((a, b) => {
             const aOnline = isPlayerOnline(a.name);
@@ -3972,14 +4120,14 @@ async function loadPlayers() {
             if (!aOnline && bOnline) return 1;
             return a.name.localeCompare(b.name);
         });
-        
+
         grid.innerHTML = sortedPlayers.map(player => {
             const isOnline = isPlayerOnline(player.name);
             const statusClass = isOnline ? 'online' : 'offline';
             const statusIcon = isOnline ? 'circle' : 'circle';
             const statusColor = isOnline ? '#4CAF50' : '#666';
             const statusText = isOnline ? 'En ligne' : 'Hors ligne';
-            
+
             return `
             <div class="player-card ${statusClass}" onclick="openPlayerModal('${player.name}', '${player.uuid}')" style="cursor:pointer">
                 <div class="player-status-indicator" style="background:${statusColor}" title="${statusText}"></div>
@@ -4013,10 +4161,10 @@ async function loadPlayers() {
             </div>
             `;
         }).join('');
-    } catch (error) { 
+    } catch (error) {
         console.error('Erreur joueurs:', error);
         sessionStats.errors++;
-        
+
         const grid = document.getElementById('players-grid');
         if (grid) {
             grid.innerHTML = `
@@ -4063,11 +4211,11 @@ function sendWhisperToPlayer(playerName) {
 // Exécuter une commande silencieuse
 async function executeCommand(command) {
     if (!currentServer) return;
-    
+
     try {
         await apiFetch(`/api/server/${currentServer}/command`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify({ command })
         });
     } catch (error) {
@@ -4078,20 +4226,20 @@ async function executeCommand(command) {
 async function openPlayerModal(name, uuid) {
     currentPlayerName = name;
     currentPlayerUUID = uuid;
-    
+
     // Mettre a jour le header du modal
     const avatar = document.getElementById('player-modal-avatar');
     const nameEl = document.getElementById('player-modal-name');
     const uuidEl = document.getElementById('player-modal-uuid');
-    
+
     if (avatar) avatar.src = `https://mc-heads.net/body/${name}/100`;
     if (nameEl) nameEl.textContent = name;
     if (uuidEl) uuidEl.textContent = uuid || 'UUID inconnu';
-    
+
     // Afficher le modal
     const modal = document.getElementById('player-modal');
     if (modal) modal.classList.add('show');
-    
+
     // Charger les details du joueur
     await loadPlayerDetails(uuid);
 }
@@ -4112,7 +4260,7 @@ async function loadPlayerDetails(uuid) {
 
     if (!currentServer || !uuid) return;
 
-    
+
 
     try {
 
@@ -4120,13 +4268,13 @@ async function loadPlayerDetails(uuid) {
 
         const data = await response.json();
 
-        
+
 
         // Mettre à jour les stats avec interface interactive
         const healthValue = data.health || 20;
         const foodValue = data.food || 20;
         const xpLevel = data.xp_level || 0;
-        
+
         // Barre de vie interactive
         const healthContainer = document.getElementById('player-health-container');
         if (healthContainer) {
@@ -4134,7 +4282,7 @@ async function loadPlayerDetails(uuid) {
         } else {
             document.getElementById('player-health').textContent = healthValue;
         }
-        
+
         // Barre de faim interactive
         const foodContainer = document.getElementById('player-food-container');
         if (foodContainer) {
@@ -4149,11 +4297,11 @@ async function loadPlayerDetails(uuid) {
 
         document.getElementById('player-playtime').textContent = data.stats?.play_time || '0h 0m';
 
-        
+
 
         if (data.position) {
 
-            document.getElementById('player-pos').textContent = 
+            document.getElementById('player-pos').textContent =
 
                 `${data.position.x}, ${data.position.y}, ${data.position.z}`;
 
@@ -4163,7 +4311,7 @@ async function loadPlayerDetails(uuid) {
 
         }
 
-        
+
 
         // Afficher l'inventaire avec textures améliorées
 
@@ -4173,7 +4321,7 @@ async function loadPlayerDetails(uuid) {
 
         renderArmor(data.armor || [], data.offhand);
 
-        
+
 
     } catch (error) {
 
@@ -4193,9 +4341,9 @@ function renderHealthBar(health, playerName) {
     const fullHearts = Math.floor(health / 2);
     const halfHeart = health % 2 === 1;
     const emptyHearts = Math.floor((maxHealth - health) / 2);
-    
+
     let hearts = '';
-    
+
     // Coeurs pleins
     for (let i = 0; i < fullHearts; i++) {
         hearts += '<span class="mc-heart full">❤</span>';
@@ -4208,11 +4356,11 @@ function renderHealthBar(health, playerName) {
     for (let i = 0; i < emptyHearts; i++) {
         hearts += '<span class="mc-heart empty">🖤</span>';
     }
-    
+
     const isOnline = isPlayerOnline(playerName);
     const disabledAttr = isOnline ? '' : 'disabled';
     const disabledClass = isOnline ? '' : 'disabled';
-    
+
     return `
         <div class="mc-stat-bar health-bar">
             <div class="hearts-display">${hearts}</div>
@@ -4241,9 +4389,9 @@ function renderFoodBar(food, playerName) {
     const fullFood = Math.floor(food / 2);
     const halfFood = food % 2 === 1;
     const emptyFood = Math.floor((maxFood - food) / 2);
-    
+
     let foodIcons = '';
-    
+
     // Nourriture pleine
     for (let i = 0; i < fullFood; i++) {
         foodIcons += '<span class="mc-food full">🍖</span>';
@@ -4256,11 +4404,11 @@ function renderFoodBar(food, playerName) {
     for (let i = 0; i < emptyFood; i++) {
         foodIcons += '<span class="mc-food empty">🦴</span>';
     }
-    
+
     const isOnline = isPlayerOnline(playerName);
     const disabledAttr = isOnline ? '' : 'disabled';
     const disabledClass = isOnline ? '' : 'disabled';
-    
+
     return `
         <div class="mc-stat-bar food-bar">
             <div class="food-display">${foodIcons}</div>
@@ -4286,10 +4434,10 @@ function renderFoodBar(food, playerName) {
  */
 async function modifyPlayerStat(playerName, stat, amount) {
     if (!currentServer || !playerName) return;
-    
+
     try {
         let command = '';
-        
+
         if (stat === 'health') {
             if (amount === 20) {
                 // Soigner complètement
@@ -4313,14 +4461,14 @@ async function modifyPlayerStat(playerName, stat, amount) {
                 command = `effect give ${playerName} minecraft:hunger 5 1`;
             }
         }
-        
+
         if (command) {
             const response = await apiFetch(`/api/server/${currentServer}/command`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                
                 body: JSON.stringify({ command })
             });
-            
+
             if (response.ok) {
                 showNotification(`${stat === 'health' ? 'Vie' : 'Faim'} modifiée pour ${playerName}`, 'success');
                 // Recharger les détails du joueur après un délai
@@ -4336,15 +4484,17 @@ async function modifyPlayerStat(playerName, stat, amount) {
 }
 
 /**
- * URLs des textures Minecraft avec fallbacks multiples
+ * URLs des textures Minecraft avec fallbacks multiples (sources fiables 2024)
  */
 const TEXTURE_SOURCES = [
-    (id) => `https://mc.nerothe.com/img/1.21.1/${id}.png`,
-    (id) => `https://minecraft-api.vercel.app/images/items/${id}.png`,
-    (id) => `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.21/assets/minecraft/textures/item/${id}.png`,
-    (id) => `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.21/assets/minecraft/textures/block/${id}.png`,
-    (id) => `https://raw.githubusercontent.com/PrismarineJS/minecraft-assets/master/data/1.20.4/items/${id}.png`,
-    (id) => `https://crafatar.com/renders/body/${id}?scale=4&overlay=true` // For player heads
+    // Source 1: MinecraftItems API - Direct CDN
+    (id) => `https://minecraftitemids.com/item/32/${id.replace('minecraft:', '')}.png`,
+    // Source 2: GitHub Raw - PrismarineJS assets
+    (id) => `https://raw.githubusercontent.com/PrismarineJS/minecraft-assets/master/data/1.20/items/${id.replace('minecraft:', '')}.png`,
+    // Source 3: Alternative GitHub
+    (id) => `https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20/assets/minecraft/textures/item/${id.replace('minecraft:', '')}.png`,
+    // Source 4: Fallback vers image par défaut
+    (id) => `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><rect width='32' height='32' fill='%23666'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='12'>?</text></svg>`
 ];
 
 // Cache pour éviter les requêtes répétées
@@ -4354,23 +4504,23 @@ const failedTextures = new Set();
 function getItemImageUrl(itemId) {
     // Clean up item ID
     const id = itemId.replace('minecraft:', '').toLowerCase();
-    
+
     // Vérifier le cache
     if (textureCache.has(id)) {
         return textureCache.get(id);
     }
-    
+
     // Retourner la première source (les fallbacks sont gérés par handleItemImageError)
     return TEXTURE_SOURCES[0](id);
 }
 
 function handleItemImageError(img, itemId) {
     const id = itemId.replace('minecraft:', '').toLowerCase();
-    
+
     if (!img.dataset.fallbackIndex) {
         img.dataset.fallbackIndex = 1;
     }
-    
+
     const idx = parseInt(img.dataset.fallbackIndex);
     if (idx < TEXTURE_SOURCES.length) {
         img.dataset.fallbackIndex = idx + 1;
@@ -4397,19 +4547,19 @@ function handleItemImageError(img, itemId) {
 function renderInventory(containerId, items, slots) {
     const container = document.getElementById(containerId);
     if (!container) return;
-    
+
     // Map des items par slot
     const itemMap = new Map();
     let totalItems = 0;
-    
+
     items.forEach(item => {
         itemMap.set(item.slot, item);
         totalItems += item.count || 1;
     });
-    
+
     const invType = containerId.includes('enderchest') ? 'enderchest' : 'inventory';
     const usedSlots = items.length;
-    
+
     // Construction du HTML
     let slotsHtml = '';
     for (let i = 0; i < slots; i++) {
@@ -4427,7 +4577,7 @@ function renderInventory(containerId, items, slots) {
             slotsHtml += '<div class="inv-slot"></div>';
         }
     }
-    
+
     container.innerHTML = `
         <div class="inventory-header">
             <span class="inventory-count">
@@ -4513,17 +4663,17 @@ function openAddItemModal(invType, slot = null) {
         `;
         document.body.appendChild(modal);
     }
-    
+
     // Stocker le type d'inventaire et le slot
     modal.dataset.invType = invType;
     modal.dataset.slot = slot !== null ? slot : '';
-    
+
     // Afficher le modal
     modal.classList.add('show');
-    
+
     // Charger les items populaires par défaut
     loadPopularItems();
-    
+
     // Focus sur la recherche
     setTimeout(() => {
         document.getElementById('item-search-input').focus();
@@ -4590,7 +4740,7 @@ const MINECRAFT_ITEMS = {
 function loadPopularItems() {
     const container = document.getElementById('items-search-results');
     if (!container) return;
-    
+
     // Afficher tous les items populaires
     const allItems = [
         ...MINECRAFT_ITEMS.weapons.slice(0, 4),
@@ -4599,7 +4749,7 @@ function loadPopularItems() {
         ...MINECRAFT_ITEMS.food.slice(0, 4),
         ...MINECRAFT_ITEMS.misc.slice(0, 4)
     ];
-    
+
     displayItemsGrid(allItems);
 }
 
@@ -4610,7 +4760,7 @@ function filterItemCategory(category, btn) {
     // Update active button
     document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    
+
     let items;
     if (category === 'all') {
         items = [
@@ -4623,7 +4773,7 @@ function filterItemCategory(category, btn) {
     } else {
         items = MINECRAFT_ITEMS[category] || [];
     }
-    
+
     displayItemsGrid(items);
 }
 
@@ -4635,7 +4785,7 @@ function searchMinecraftItems(query) {
         loadPopularItems();
         return;
     }
-    
+
     const searchTerm = query.toLowerCase().replace(/\s+/g, '_');
     const allItems = [
         ...MINECRAFT_ITEMS.weapons,
@@ -4645,9 +4795,9 @@ function searchMinecraftItems(query) {
         ...MINECRAFT_ITEMS.food,
         ...MINECRAFT_ITEMS.misc
     ];
-    
+
     const filtered = allItems.filter(item => item.includes(searchTerm));
-    
+
     // Si pas de résultat dans la liste, permettre l'entrée manuelle
     if (filtered.length === 0) {
         displayItemsGrid([searchTerm], true);
@@ -4662,12 +4812,12 @@ function searchMinecraftItems(query) {
 function displayItemsGrid(items, isCustom = false) {
     const container = document.getElementById('items-search-results');
     if (!container) return;
-    
+
     if (items.length === 0) {
         container.innerHTML = '<div class="no-items">Aucun item trouvé</div>';
         return;
     }
-    
+
     let html = '';
     items.forEach(item => {
         const itemName = formatItemName(item);
@@ -4685,7 +4835,7 @@ function displayItemsGrid(items, isCustom = false) {
             </div>
         `;
     });
-    
+
     container.innerHTML = html;
 }
 
@@ -4694,19 +4844,19 @@ function displayItemsGrid(items, isCustom = false) {
  */
 function selectItemToGive(itemId) {
     selectedItemToGive = itemId;
-    
+
     // Afficher la preview
     const preview = document.getElementById('selected-item-preview');
     preview.style.display = 'flex';
-    
+
     document.getElementById('preview-item-img').src = getItemImageUrl(itemId);
     document.getElementById('preview-item-name').textContent = formatItemName(itemId);
     document.getElementById('preview-item-id').textContent = `minecraft:${itemId}`;
     document.getElementById('item-quantity').value = 1;
-    
+
     // Activer le bouton
     document.getElementById('btn-give-item').disabled = false;
-    
+
     // Highlight l'item sélectionné
     document.querySelectorAll('.item-option').forEach(el => el.classList.remove('selected'));
     event.currentTarget.classList.add('selected');
@@ -4737,21 +4887,21 @@ async function giveItemToPlayer() {
         showToast('error', 'Erreur: informations manquantes');
         return;
     }
-    
+
     const quantity = parseInt(document.getElementById('item-quantity').value) || 1;
     const command = `give ${currentPlayerName} minecraft:${selectedItemToGive} ${quantity}`;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/command`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify({ command })
         });
-        
+
         if (response.ok) {
             showToast('success', `${formatItemName(selectedItemToGive)} x${quantity} donné à ${currentPlayerName}`);
             closeAddItemModal();
-            
+
             // Rafraîchir l'inventaire après un délai
             setTimeout(() => {
                 if (currentPlayerUUID) {
@@ -4772,13 +4922,13 @@ async function giveItemToPlayer() {
  */
 function openItemContextMenu(event, invType, slot, itemId, count) {
     event.stopPropagation();
-    
+
     // Supprimer ancien menu
     const oldMenu = document.getElementById('item-context-menu');
     if (oldMenu) oldMenu.remove();
-    
+
     const itemName = formatItemName(itemId);
-    
+
     const menu = document.createElement('div');
     menu.id = 'item-context-menu';
     menu.className = 'context-menu';
@@ -4802,15 +4952,15 @@ function openItemContextMenu(event, invType, slot, itemId, count) {
             </button>
         </div>
     `;
-    
+
     // Positionner le menu
     menu.style.position = 'fixed';
     menu.style.left = `${event.clientX}px`;
     menu.style.top = `${event.clientY}px`;
     menu.style.zIndex = '10000';
-    
+
     document.body.appendChild(menu);
-    
+
     // Fermer au clic ailleurs
     setTimeout(() => {
         document.addEventListener('click', function closeMenu(e) {
@@ -4827,24 +4977,24 @@ function openItemContextMenu(event, invType, slot, itemId, count) {
  */
 async function clearInventorySlot(slot, itemId) {
     if (!currentPlayerName || !currentServer) return;
-    
+
     const itemName = itemId.replace('minecraft:', '');
     const command = `clear ${currentPlayerName} ${itemId} 64`;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/command`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify({ command })
         });
-        
+
         if (response.ok) {
             showToast('success', `${formatItemName(itemName)} supprimé de l'inventaire`);
-            
+
             // Fermer le menu contextuel
             const menu = document.getElementById('item-context-menu');
             if (menu) menu.remove();
-            
+
             // Rafraîchir l'inventaire
             setTimeout(() => {
                 if (currentPlayerUUID) {
@@ -4863,9 +5013,9 @@ async function clearInventorySlot(slot, itemId) {
 function giveMoreOfItem(itemId) {
     const menu = document.getElementById('item-context-menu');
     if (menu) menu.remove();
-    
+
     openAddItemModal('inventory');
-    
+
     // Pré-sélectionner l'item
     setTimeout(() => {
         selectItemToGive(itemId.replace('minecraft:', ''));
@@ -4880,7 +5030,7 @@ function copyItemCommand(itemId) {
     navigator.clipboard.writeText(command).then(() => {
         showToast('success', 'Commande copiée!');
     });
-    
+
     const menu = document.getElementById('item-context-menu');
     if (menu) menu.remove();
 }
@@ -4891,7 +5041,7 @@ function renderArmor(armor, offhand) {
 
     if (!container) return;
 
-    
+
 
     const armorSlots = [
 
@@ -4905,7 +5055,7 @@ function renderArmor(armor, offhand) {
 
     ];
 
-    
+
 
     const armorMap = {};
 
@@ -4915,7 +5065,7 @@ function renderArmor(armor, offhand) {
 
     });
 
-    
+
 
     let html = '';
 
@@ -4961,7 +5111,7 @@ function renderArmor(armor, offhand) {
 
     });
 
-    
+
 
     // Offhand
 
@@ -5001,7 +5151,7 @@ function renderArmor(armor, offhand) {
 
     }
 
-    
+
 
     container.innerHTML = html;
 
@@ -5025,7 +5175,7 @@ function switchInventoryTab(tab) {
 
     document.querySelectorAll('.inventory-container').forEach(c => c.style.display = 'none');
 
-    
+
 
     // Activer l'onglet selectionne
 
@@ -5041,7 +5191,7 @@ async function playerAction(pseudo, action) {
 
     if (!currentServer) return;
 
-    
+
 
     // Confirmation pour les actions dangereuses
 
@@ -5053,7 +5203,7 @@ async function playerAction(pseudo, action) {
 
     if (action === 'clear' && !confirm(`Voulez-vous vraiment vider l'inventaire de ${pseudo} ?`)) return;
 
-    
+
 
     try {
 
@@ -5061,7 +5211,7 @@ async function playerAction(pseudo, action) {
 
             method: 'POST',
 
-            headers: { 'Content-Type': 'application/json' },
+            
 
             body: JSON.stringify({ pseudo, act: action })
 
@@ -5095,7 +5245,7 @@ async function playerAction(pseudo, action) {
 
             loadPlayers();
 
-            
+
 
             // Recharger les details si le modal est ouvert
 
@@ -5111,7 +5261,7 @@ async function playerAction(pseudo, action) {
 
         }
 
-    } catch (error) { 
+    } catch (error) {
 
         console.error('Erreur action joueur:', error);
 
@@ -5131,16 +5281,16 @@ async function playerAction(pseudo, action) {
 
 async function loadInstalledPlugins() {
     if (!currentServer) return;
-    
+
     // Amélioration 36: Stats de session
     sessionStats.apiCalls++;
-    
+
     const container = document.getElementById('installed-plugins');
     if (!container) {
         console.warn('Conteneur installed-plugins non trouvé');
         return;
     }
-    
+
     // Afficher le loading
     container.innerHTML = `
         <div class="loading-state">
@@ -5148,10 +5298,10 @@ async function loadInstalledPlugins() {
             <p>Chargement des plugins...</p>
         </div>
     `;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/plugins/installed`);
-        
+
         // Vérifier le Content-Type avant de parser
         const contentType = response.headers.get('Content-Type') || '';
         if (!contentType.includes('application/json')) {
@@ -5165,13 +5315,13 @@ async function loadInstalledPlugins() {
             `;
             return;
         }
-        
+
         const plugins = await response.json();
-        
+
         // Amélioration 37: Mettre à jour le compteur dans l'onglet
         const pluginCount = Array.isArray(plugins) ? plugins.length : 0;
         updatePluginTabCount(pluginCount);
-        
+
         if (!plugins || !Array.isArray(plugins) || plugins.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
@@ -5182,7 +5332,7 @@ async function loadInstalledPlugins() {
             `;
             return;
         }
-        
+
         container.innerHTML = plugins.map(plugin => `
             <div class="plugin-card installed">
                 <div class="plugin-info">
@@ -5205,7 +5355,7 @@ async function loadInstalledPlugins() {
                 </div>
             </div>
         `).join('');
-    } catch (error) { 
+    } catch (error) {
         console.error('Erreur plugins:', error);
         sessionStats.errors++;
         container.innerHTML = `
@@ -5231,7 +5381,7 @@ function updatePluginTabCount(count) {
 // Amélioration 39: Recharger un plugin
 async function reloadPlugin(pluginName) {
     if (!currentServer) return;
-    
+
     try {
         // Envoyer la commande de reload
         await executeCommand(`plugman reload ${pluginName}`);
@@ -5252,9 +5402,9 @@ const debouncedSearchPlugins = debounce(async () => {
 async function searchPlugins() {
     const query = document.getElementById('plugin-search')?.value.trim();
     if (!query) { showToast('info', 'Entrez un terme de recherche'); return; }
-    
+
     sessionStats.apiCalls++;
-    
+
     try {
         showToast('info', 'Recherche en cours...');
         const response = await apiFetch(`/api/plugins/search?q=${encodeURIComponent(query)}`, {
@@ -5264,7 +5414,7 @@ async function searchPlugins() {
         const plugins = data.result || [];
         const container = document.getElementById('search-results');
         if (!container) return;
-        
+
         if (plugins.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
@@ -5274,7 +5424,7 @@ async function searchPlugins() {
             `;
             return;
         }
-        
+
         container.innerHTML = plugins.map(plugin => `
             <div class="plugin-card search-result">
                 <div class="plugin-info">
@@ -5312,88 +5462,66 @@ async function installPlugin(slug, name) {
     if (!currentServer) return;
 
     try {
-
         showToast('info', `Installation de ${name}...`);
-
+        
+        // Amélioration Sécurité 6: S'assurer que le token CSRF est présent
+        await ensureCsrfToken();
+        
         const response = await apiFetch(`/api/server/${currentServer}/plugins/install`, {
-
             method: 'POST',
-
-            headers: { 'Content-Type': 'application/json' },
-
             body: JSON.stringify({ slug })
-
         });
 
         const result = await response.json();
 
         if (result.status === 'success') {
-
-            showToast('success', `${name} installe`);
-
+            showToast('success', `${name} installé avec succès`);
             loadInstalledPlugins();
-
         } else {
-
-            showToast('error', result.message || 'Installation echoue');
-
+            showToast('error', result.message || 'Installation échouée');
         }
 
     } catch (error) {
-
         console.error('Erreur installation:', error);
-
-        showToast('error', 'Erreur installation');
-
+        showToast('error', `Erreur installation: ${error.message}`);
     }
 
 }
 
 
-
+// Amélioration Sécurité 7: Désinstallation avec CSRF robuste
 async function uninstallPlugin(name) {
-
     if (!currentServer) return;
-
-    if (!confirm(`Desinstaller ${name} ?`)) return;
+    if (!confirm(`Désinstaller ${name} ?`)) return;
 
     try {
-
+        await ensureCsrfToken();
+        
         const response = await apiFetch(`/api/server/${currentServer}/plugins/uninstall`, {
-
             method: 'POST',
-
-            headers: { 'Content-Type': 'application/json' },
-
             body: JSON.stringify({ name })
-
         });
 
         const result = await response.json();
 
         if (result.status === 'success') {
-
-            showToast('success', `${name} desinstalle`);
-
+            showToast('success', `${name} désinstallé`);
             loadInstalledPlugins();
-
         } else {
-
-            showToast('error', result.message || 'Erreur');
-
+            showToast('error', result.message || 'Erreur de désinstallation');
         }
-
-    } catch (error) { console.error('Erreur desinstallation:', error); }
-
+    } catch (error) {
+        console.error('Erreur désinstallation:', error);
+        showToast('error', `Erreur: ${error.message}`);
+    }
 }
-
 
 
 async function uploadPlugin(file) {
 
     if (!currentServer || !file) return;
 
-    
+
 
     if (!file.name.endsWith('.jar')) {
 
@@ -5403,19 +5531,19 @@ async function uploadPlugin(file) {
 
     }
 
-    
+
 
     try {
 
         showToast('info', `Upload de ${file.name}...`);
 
-        
+
 
         const formData = new FormData();
 
         formData.append('plugin', file);
 
-        
+
 
         const response = await apiFetch(`/api/server/${currentServer}/plugins/upload`, {
 
@@ -5425,7 +5553,7 @@ async function uploadPlugin(file) {
 
         });
 
-        
+
 
         const result = await response.json();
 
@@ -5449,7 +5577,7 @@ async function uploadPlugin(file) {
 
     }
 
-    
+
 
     // Reset input
 
@@ -5519,24 +5647,24 @@ const CONFIG_LABELS = {
 
 async function loadConfig() {
     if (!currentServer) return;
-    
+
     sessionStats.apiCalls++;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/config`);
         const config = await response.json();
         const grid = document.getElementById('config-grid');
         if (!grid) return;
-        
+
         // Amélioration 42: Trier les clés alphabétiquement
         const sortedEntries = Object.entries(config).sort((a, b) => a[0].localeCompare(b[0]));
-        
+
         grid.innerHTML = sortedEntries.map(([key, value]) => {
             const label = CONFIG_LABELS[key] || key;
             const inputId = `config-${key.replace(/\./g, '-')}`;
             const isBoolean = typeof value === 'boolean' || value === 'true' || value === 'false';
             const isNumber = !isNaN(value) && value !== '' && !isBoolean;
-            
+
             // Amélioration 43: Types d'input adaptés
             if (isBoolean) {
                 const checked = value === true || value === 'true';
@@ -5587,7 +5715,7 @@ async function loadConfig() {
                 `;
             }
         }).join('');
-    } catch (error) { 
+    } catch (error) {
         console.error('Erreur config:', error);
         sessionStats.errors++;
     }
@@ -5595,12 +5723,12 @@ async function loadConfig() {
 
 async function saveConfig() {
     if (!currentServer) return;
-    
+
     sessionStats.apiCalls++;
-    
+
     try {
         const config = {};
-        
+
         // Amélioration 45: Récupérer inputs, checkboxes et textareas
         document.querySelectorAll('#config-grid input, #config-grid textarea').forEach(el => {
             const key = el.dataset.key;
@@ -5612,21 +5740,21 @@ async function saveConfig() {
                 }
             }
         });
-        
+
         const response = await apiFetch(`/api/server/${currentServer}/config`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify(config)
         });
         const result = await response.json();
-        
+
         if (result.status === 'success') {
             showToast('success', 'Configuration sauvegardée');
             playNotificationSound('success');
         } else {
             showToast('error', result.message || 'Erreur');
         }
-    } catch (error) { 
+    } catch (error) {
         console.error('Erreur sauvegarde config:', error);
         sessionStats.errors++;
         showToast('error', 'Erreur sauvegarde');
@@ -5639,9 +5767,9 @@ async function saveConfig() {
 
 async function loadBackups() {
     if (!currentServer) return;
-    
+
     sessionStats.apiCalls++;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/backups`);
         const backups = await response.json();
@@ -5650,7 +5778,7 @@ async function loadBackups() {
 
         if (!container) return;
 
-        
+
 
         if (!backups || backups.length === 0) {
 
@@ -5660,7 +5788,7 @@ async function loadBackups() {
 
         }
 
-        
+
 
         container.innerHTML = backups.map(backup => `
 
@@ -5704,7 +5832,7 @@ async function deleteBackup(backupName) {
 
     if (!confirm(`Supprimer la sauvegarde "${backupName}" ?\n\nCette action est irreversible !`)) return;
 
-    
+
 
     try {
 
@@ -5746,7 +5874,7 @@ async function restoreBackup(backupName) {
 
     if (!confirm(`Restaurer la sauvegarde "${backupName}" ?\n\nLe serveur sera arreªte et les fichiers actuels seront remplaces.`)) return;
 
-    
+
 
     showToast('info', 'Restauration en cours...');
 
@@ -5756,7 +5884,7 @@ async function restoreBackup(backupName) {
 
             method: 'POST',
 
-            headers: { 'Content-Type': 'application/json' },
+            
 
             body: JSON.stringify({ backup: backupName })
 
@@ -5798,7 +5926,7 @@ async function saveSchedule(event) {
 
     if (!currentServer) return;
 
-    
+
 
     const config = {
 
@@ -5812,7 +5940,7 @@ async function saveSchedule(event) {
 
     };
 
-    
+
 
     try {
 
@@ -5820,7 +5948,7 @@ async function saveSchedule(event) {
 
             method: 'POST',
 
-            headers: { 'Content-Type': 'application/json' },
+            
 
             body: JSON.stringify(config)
 
@@ -5862,7 +5990,7 @@ async function loadNotifications() {
 
         const unreadCount = notifications.filter(n => !n.read).length;
 
-        
+
 
         const badge = document.getElementById('notif-badge');
 
@@ -5874,7 +6002,7 @@ async function loadNotifications() {
 
         }
 
-        
+
 
         const container = document.getElementById('notifications-list');
 
@@ -5902,7 +6030,7 @@ async function loadNotifications() {
 
         }
 
-        
+
 
         const activityList = document.getElementById('activity-list');
 
@@ -6008,13 +6136,13 @@ async function loadSettings() {
 
     if (currentUser?.role === 'admin') await loadUsers();
 
-    
+
 
     // Charger les parame¨tres sauvegardes
 
     const savedSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
 
-    
+
 
     // Appliquer les parame¨tres
 
@@ -6126,7 +6254,7 @@ async function loadUsers() {
 
         if (!container) return;
 
-        
+
 
         const users = data.users || [];
 
@@ -6164,7 +6292,7 @@ async function createUser(event) {
 
     const role = document.getElementById('new-role')?.value || 'user';
 
-    
+
 
     try {
 
@@ -6172,7 +6300,7 @@ async function createUser(event) {
 
             method: 'POST',
 
-            headers: { 'Content-Type': 'application/json' },
+            
 
             body: JSON.stringify({ username, password, role })
 
@@ -6236,7 +6364,7 @@ async function testDiscord() {
 
             method: 'POST',
 
-            headers: { 'Content-Type': 'application/json' },
+            
 
             body: JSON.stringify({ webhook_url: webhook })
 
@@ -6298,11 +6426,11 @@ async function createServer(event) {
 
     const ramMax = document.getElementById('ram-max')?.value || '2048';
 
-    
+
 
     if (!name || !version) { showToast('error', 'Remplissez tous les champs'); return; }
 
-    
+
 
     try {
 
@@ -6310,13 +6438,11 @@ async function createServer(event) {
 
         showToast('info', 'Creation du serveur...');
 
-        
+
 
         const response = await apiFetch('/api/create', {
 
             method: 'POST',
-
-            headers: { 'Content-Type': 'application/json' },
 
             body: JSON.stringify({ name, version, ram_min: ramMin + 'M', ram_max: ramMax + 'M' })
 
@@ -6324,7 +6450,7 @@ async function createServer(event) {
 
         const result = await response.json();
 
-        
+
 
         if (result.status === 'success') {
 
@@ -6368,7 +6494,7 @@ function showToast(type, message) {
 
     toast.className = `toast ${type}`;
 
-    
+
 
     const icons = { success: 'check-circle', error: 'exclamation-circle', info: 'info-circle', warning: 'exclamation-triangle' };
 
@@ -6376,7 +6502,7 @@ function showToast(type, message) {
 
     container.appendChild(toast);
 
-    
+
 
     setTimeout(() => {
 
@@ -6476,7 +6602,7 @@ const SUPPORTED_LANGUAGES = {
 function t(key, params = {}) {
     let text = getTranslation(key);
     if (!text) return key; // Retourne la clé si traduction non trouvée
-    
+
     // Interpolation des paramètres {n}, {name}, etc.
     for (const [param, value] of Object.entries(params)) {
         text = text.replace(new RegExp(`\\{${param}\\}`, 'g'), value);
@@ -6494,21 +6620,21 @@ async function changeLanguage(lang) {
             console.warn(`Language ${lang} not supported, falling back to 'fr'`);
             lang = 'fr';
         }
-        
+
         const response = await apiFetch(`/api/i18n/translations?lang=${lang}`);
         if (!response.ok) throw new Error('Language not found');
-        
+
         const data = await response.json();
         translations = data.translations || data;
         currentLang = lang;
         localStorage.setItem('language', lang);
-        
+
         // Mettre à jour l'attribut lang du HTML
         document.documentElement.lang = lang;
-        
+
         applyTranslations();
         updateLanguageSelector();
-        
+
         showToast('success', `${SUPPORTED_LANGUAGES[lang].flag} ${SUPPORTED_LANGUAGES[lang].name}`);
     } catch (error) {
         console.error('Language change error:', error);
@@ -6525,7 +6651,7 @@ function applyTranslations() {
             el.textContent = text;
         }
     });
-    
+
     // Traduire les placeholders
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
@@ -6534,7 +6660,7 @@ function applyTranslations() {
             el.placeholder = text;
         }
     });
-    
+
     // Traduire les titres (tooltips)
     document.querySelectorAll('[data-i18n-title]').forEach(el => {
         const key = el.getAttribute('data-i18n-title');
@@ -6543,7 +6669,7 @@ function applyTranslations() {
             el.title = text;
         }
     });
-    
+
     // Traduire les valeurs d'attributs aria-label
     document.querySelectorAll('[data-i18n-aria]').forEach(el => {
         const key = el.getAttribute('data-i18n-aria');
@@ -6552,7 +6678,7 @@ function applyTranslations() {
             el.setAttribute('aria-label', text);
         }
     });
-    
+
     // Traduire le titre de la page
     const pageTitle = t('app.title');
     if (pageTitle && pageTitle !== 'app.title') {
@@ -6578,7 +6704,7 @@ function updateLanguageSelector() {
     document.querySelectorAll('.lang-select, #lang-select').forEach(select => {
         select.value = currentLang;
     });
-    
+
     // Mettre à jour le bouton de langue si présent
     const langBtn = document.getElementById('current-lang');
     if (langBtn && SUPPORTED_LANGUAGES[currentLang]) {
@@ -6608,12 +6734,12 @@ function toggleLanguageDropdown() {
 async function loadLanguage() {
     const savedLang = localStorage.getItem('language') || navigator.language.split('-')[0] || 'fr';
     const langToUse = SUPPORTED_LANGUAGES[savedLang] ? savedLang : 'fr';
-    
+
     // Mettre à jour les sélecteurs
     document.querySelectorAll('.lang-select, #lang-select').forEach(select => {
         select.value = langToUse;
     });
-    
+
     await changeLanguage(langToUse);
 
 }
@@ -6632,7 +6758,7 @@ function getServerAddress(serverName) {
 
     const config = JSON.parse(localStorage.getItem('serverAddressConfig') || '{}');
 
-    
+
 
     if (config.useSubdomain && config.domain) {
 
@@ -6644,7 +6770,7 @@ function getServerAddress(serverName) {
 
     }
 
-    
+
 
     // Par defaut, utiliser localhost
 
@@ -6712,7 +6838,7 @@ function updateServerAddressDisplay(serverName, port) {
 
     const addressText = document.getElementById('server-address-text');
 
-    
+
 
     if (addressDisplay && addressText) {
 
@@ -6754,7 +6880,7 @@ function loadAddressConfig() {
 
     const config = JSON.parse(localStorage.getItem('serverAddressConfig') || '{}');
 
-    
+
 
     const useSubdomain = document.getElementById('use-subdomain');
 
@@ -6762,7 +6888,7 @@ function loadAddressConfig() {
 
     const customIP = document.getElementById('custom-ip');
 
-    
+
 
     if (useSubdomain) useSubdomain.checked = config.useSubdomain || false;
 
@@ -6770,7 +6896,7 @@ function loadAddressConfig() {
 
     if (customIP) customIP.value = config.customIP || '';
 
-    
+
 
     toggleAddressMode();
 
@@ -6786,13 +6912,13 @@ function toggleAddressMode() {
 
     const ipConfig = document.getElementById('ip-config');
 
-    
+
 
     if (subdomainConfig) subdomainConfig.style.display = useSubdomain ? 'block' : 'none';
 
     if (ipConfig) ipConfig.style.display = useSubdomain ? 'none' : 'block';
 
-    
+
 
     updateAddressPreview();
 
@@ -6826,7 +6952,7 @@ async function detectPublicIP() {
 
         const data = await response.json();
 
-        
+
 
         const ipInput = document.getElementById('custom-ip');
 
@@ -6874,23 +7000,23 @@ document.addEventListener('keydown', (e) => {
         }
         return;
     }
-    
+
     if (e.key === 'Escape') {
         document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show'));
         return;
     }
-    
+
     if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
         if (currentServer) toggleServer();
     }
-    
+
     if (e.ctrlKey && e.key === 'n') {
         e.preventDefault();
         const modal = document.getElementById('modal-create');
         if (modal) modal.classList.add('show');
     }
-    
+
     if (e.key >= '1' && e.key <= '5' && !e.ctrlKey && !e.altKey) {
         const tabs = ['console', 'players', 'plugins', 'config', 'backups'];
         const idx = parseInt(e.key) - 1;
@@ -6908,9 +7034,9 @@ function initDragDrop() {
             e.preventDefault();
             zone.classList.add('drag-over');
         });
-        
+
         zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-        
+
         zone.addEventListener('drop', async (e) => {
             e.preventDefault();
             zone.classList.remove('drag-over');
@@ -6923,7 +7049,7 @@ function initDragDrop() {
 async function handleFileDrop(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     const formData = new FormData();
-    
+
     if (ext === 'jar') {
         formData.append('plugin', file);
         showToast('info', 'Uploading ' + file.name);
@@ -6966,7 +7092,7 @@ async function loadWorlds() {
     const container = document.getElementById('worlds-list');
     if (!container) return;
     if (data.worlds && data.worlds.length > 0) {
-        container.innerHTML = data.worlds.map(w => 
+        container.innerHTML = data.worlds.map(w =>
             '<div class="backup-item"><i class="fas fa-globe"></i>' +
             '<div class="backup-info"><span class="backup-name">' + w.name + '</span>' +
             '<span class="backup-date">' + w.size_mb + ' MB</span></div></div>'
@@ -6980,63 +7106,7 @@ async function loadWorlds() {
 // FILE BROWSER
 // ================================
 
-let currentFilePath = '';
 
-async function loadFiles(path) {
-    path = path || '';
-    if (!currentServer) return;
-    currentFilePath = path;
-    const resp = await apiFetch('/api/server/' + currentServer + '/files?path=' + encodeURIComponent(path));
-    const data = await resp.json();
-    const container = document.getElementById('file-browser');
-    if (!container) return;
-    
-    let html = '';
-    if (path) {
-        const parent = path.split('/').slice(0, -1).join('/');
-        html += '<div class="file-item" style="cursor:pointer;padding:8px" onclick="loadFiles(\''+parent+'\')"><i class="fas fa-arrow-left"></i> ..</div>';
-    }
-    if (data.files) {
-        data.files.forEach(f => {
-            const icon = f.is_dir ? 'fa-folder' : 'fa-file';
-            const newPath = (path ? path + '/' : '') + f.name;
-            if (f.is_dir) {
-                html += '<div class="file-item" style="cursor:pointer;padding:8px" onclick="loadFiles(\''+newPath+'\')"><i class="fas '+icon+'"></i> '+f.name+'</div>';
-            } else {
-                html += '<div class="file-item" style="cursor:pointer;padding:8px" onclick="openFile(\''+newPath+'\')"><i class="fas '+icon+'"></i> '+f.name+'</div>';
-            }
-        });
-    }
-    container.innerHTML = html || '<div class="empty-message">Empty</div>';
-}
-
-async function openFile(path) {
-    const resp = await apiFetch('/api/server/' + currentServer + '/files/read?path=' + encodeURIComponent(path));
-    const data = await resp.json();
-    if (data.status === 'success') {
-        const pathEl = document.getElementById('file-editor-path');
-        const contentEl = document.getElementById('file-editor-content');
-        const modal = document.getElementById('modal-file-editor');
-        if (pathEl) pathEl.textContent = path;
-        if (contentEl) contentEl.value = data.content;
-        if (modal) modal.classList.add('show');
-    }
-}
-
-async function saveFile() {
-    const path = document.getElementById('file-editor-path').textContent;
-    const content = document.getElementById('file-editor-content').value;
-    const resp = await apiFetch('/api/server/' + currentServer + '/files/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: path, content: content })
-    });
-    if (resp.ok) {
-        showToast('success', 'File saved');
-        const modal = document.getElementById('modal-file-editor');
-        if (modal) modal.classList.remove('show');
-    }
-}
 
 // ================================
 // TUNNEL MANAGER - MULTI-PROVIDER (Gratuit, sans compte)
@@ -7079,23 +7149,23 @@ async function startTunnel(provider = null) {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Démarrage...';
     }
-    
+
     tunnelRetryCount = 0;
     const useProvider = provider || selectedProvider;
-    
+
     try {
         const resp = await apiFetch('/api/tunnel/start', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify({ port: 25565, provider: useProvider })
         });
-        
+
         if (resp.status === 401) {
             showToast('error', 'Session expirée, reconnectez-vous');
             window.location.href = '/login';
             return;
         }
-        
+
         // Vérifier le Content-Type avant de parser en JSON
         const contentType = resp.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
@@ -7104,12 +7174,12 @@ async function startTunnel(provider = null) {
             console.error('Réponse non-JSON:', text.substring(0, 200));
             throw new Error('Le serveur a renvoyé une réponse invalide. Vérifiez que vous êtes connecté.');
         }
-        
+
         const data = await resp.json();
-        
+
         // Afficher le modal
         showTunnelModal();
-        
+
         if (data.status === 'success' && data.address) {
             showTunnelAddress(data.address, data.provider);
             startTunnelPolling();
@@ -7140,7 +7210,7 @@ async function stopTunnel() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Arrêt...';
     }
-    
+
     try {
         const resp = await apiFetch('/api/tunnel/stop', { method: 'POST' });
         if (resp.ok) {
@@ -7172,7 +7242,7 @@ function stopTunnelPolling() {
 async function checkTunnelStatus() {
     try {
         const resp = await apiFetch('/api/tunnel/status');
-        
+
         if (!resp.ok) {
             tunnelRetryCount++;
             if (tunnelRetryCount >= TUNNEL_MAX_RETRIES) {
@@ -7181,7 +7251,7 @@ async function checkTunnelStatus() {
             }
             return;
         }
-        
+
         // Vérifier le Content-Type
         const contentType = resp.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
@@ -7189,10 +7259,10 @@ async function checkTunnelStatus() {
             tunnelRetryCount++;
             return;
         }
-        
+
         const data = await resp.json();
         tunnelRetryCount = 0;
-        
+
         if (data.status === 'running' && data.address) {
             showTunnelAddress(data.address, data.provider);
         } else if (data.status === 'connecting') {
@@ -7205,7 +7275,7 @@ async function checkTunnelStatus() {
             showTunnelError(data.error || 'Erreur du tunnel');
             stopTunnelPolling();
         }
-        
+
         updateTunnelButton(data.running);
     } catch (e) {
         tunnelRetryCount++;
@@ -7233,11 +7303,11 @@ async function updateTunnelButton(running) {
             running = false;
         }
     }
-    
+
     // Support pour les deux IDs de bouton
     const btn = document.getElementById('btn-tunnel') || document.getElementById('btn-playit');
     if (!btn) return;
-    
+
     btn.disabled = false;
     if (running) {
         btn.innerHTML = '<i class="fas fa-globe"></i> Tunnel Actif';
@@ -7256,20 +7326,20 @@ function showTunnelModal(showProviders = false) {
         console.error('Modal tunnel non trouvé');
         return;
     }
-    
+
     // Reset l'état du modal
     const statusEl = document.getElementById('tunnel-status');
     const addressBox = document.getElementById('tunnel-address-box');
     const actionsEl = document.getElementById('tunnel-actions');
     const manualConfig = document.getElementById('manual-tunnel-config');
     const providersSection = modal.querySelector('.tunnel-providers');
-    
+
     // Afficher les providers par défaut
     if (providersSection) providersSection.style.display = 'block';
     if (manualConfig) manualConfig.style.display = 'none';
     if (actionsEl) actionsEl.style.display = 'none';
     if (addressBox) addressBox.style.display = 'none';
-    
+
     // Mettre à jour le statut
     if (statusEl) {
         statusEl.innerHTML = `
@@ -7283,10 +7353,10 @@ function showTunnelModal(showProviders = false) {
         `;
         statusEl.className = 'tunnel-status ready';
     }
-    
+
     // Vérifier le statut actuel du tunnel
     checkTunnelStatus();
-    
+
     modal.style.display = 'flex';
     modal.classList.add('show');
 }
@@ -7334,17 +7404,17 @@ function setManualTunnel() {
         showToast('error', 'Entrez une adresse');
         return;
     }
-    
+
     // Afficher l'adresse manuelle
     const addressBox = document.getElementById('tunnel-address-box');
     const tunnelAddress = document.getElementById('tunnel-address');
     const actionsEl = document.getElementById('tunnel-actions');
     const statusEl = document.getElementById('tunnel-status');
-    
+
     if (tunnelAddress) tunnelAddress.value = address;
     if (addressBox) addressBox.style.display = 'block';
     if (actionsEl) actionsEl.style.display = 'flex';
-    
+
     if (statusEl) {
         statusEl.innerHTML = `
             <div class="tunnel-status-icon">
@@ -7357,7 +7427,7 @@ function setManualTunnel() {
         `;
         statusEl.className = 'tunnel-status active';
     }
-    
+
     document.getElementById('manual-tunnel-config').style.display = 'none';
     showToast('success', 'Adresse configurée !');
 }
@@ -7366,10 +7436,10 @@ function showTunnelLoading(message = 'Connexion...') {
     const statusEl = document.getElementById('tunnel-status');
     const actionsEl = document.getElementById('tunnel-actions');
     const providersSection = document.querySelector('.tunnel-providers');
-    
+
     if (providersSection) providersSection.style.display = 'none';
     if (actionsEl) actionsEl.style.display = 'none';
-    
+
     if (statusEl) {
         statusEl.innerHTML = `
             <div class="tunnel-status-icon">
@@ -7388,10 +7458,10 @@ function showTunnelError(message) {
     const statusEl = document.getElementById('tunnel-status');
     const actionsEl = document.getElementById('tunnel-actions');
     const providersSection = document.querySelector('.tunnel-providers');
-    
+
     if (providersSection) providersSection.style.display = 'block';
     if (actionsEl) actionsEl.style.display = 'none';
-    
+
     if (statusEl) {
         statusEl.innerHTML = `
             <div class="tunnel-status-icon">
@@ -7404,7 +7474,7 @@ function showTunnelError(message) {
         `;
         statusEl.className = 'tunnel-status error';
     }
-    
+
     showToast('error', message);
 }
 
@@ -7414,12 +7484,12 @@ function showTunnelAddress(address, provider) {
     const tunnelAddress = document.getElementById('tunnel-address');
     const actionsEl = document.getElementById('tunnel-actions');
     const providersSection = document.querySelector('.tunnel-providers');
-    
+
     if (providersSection) providersSection.style.display = 'none';
     if (addressBox) addressBox.style.display = 'block';
     if (actionsEl) actionsEl.style.display = 'flex';
     if (tunnelAddress) tunnelAddress.value = address;
-    
+
     if (statusEl) {
         statusEl.innerHTML = `
             <div class="tunnel-status-icon">
@@ -7432,7 +7502,7 @@ function showTunnelAddress(address, provider) {
         `;
         statusEl.className = 'tunnel-status active';
     }
-    
+
     showToast('success', 'Tunnel activé ! Adresse : ' + address);
 }
 
@@ -7441,11 +7511,11 @@ function showTunnelManual(data) {
     const addressBox = document.getElementById('tunnel-address-box');
     const tunnelAddress = document.getElementById('tunnel-address');
     const actionsEl = document.getElementById('tunnel-actions');
-    
+
     if (addressBox) addressBox.style.display = 'block';
     if (actionsEl) actionsEl.style.display = 'flex';
     if (tunnelAddress) tunnelAddress.value = data.address || '';
-    
+
     if (statusEl) {
         statusEl.innerHTML = `
             <div class="tunnel-status-icon">
@@ -7518,7 +7588,7 @@ function _showJsError(title, details) {
     copyBtn.textContent = 'Copier l\'erreur';
     copyBtn.onclick = () => {
         try { navigator.clipboard.writeText(title + '\n\n' + details); showToast('info', 'Erreur copiée dans le presse-papiers'); }
-        catch(e){ showToast('error', 'Impossible de copier'); }
+        catch (e) { showToast('error', 'Impossible de copier'); }
     };
 
     const closeBtn = document.createElement('button');
@@ -7559,11 +7629,11 @@ function exportConsoleLogs(format = 'txt') {
         showToast('error', 'Console non disponible');
         return;
     }
-    
+
     const logs = output.innerText || output.textContent;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `minecraft-logs-${currentServer}-${timestamp}.${format}`;
-    
+
     let content = logs;
     if (format === 'json') {
         const lines = logs.split('\n').filter(l => l.trim());
@@ -7571,7 +7641,7 @@ function exportConsoleLogs(format = 'txt') {
     } else if (format === 'html') {
         content = `<!DOCTYPE html><html><head><title>Logs ${currentServer}</title><style>body{background:#1a1a2e;color:#0f0;font-family:monospace;padding:20px;}pre{white-space:pre-wrap;}</style></head><body><h1>Logs: ${currentServer}</h1><p>Date: ${new Date().toLocaleString()}</p><pre>${logs.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></body></html>`;
     }
-    
+
     const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -7588,15 +7658,15 @@ function exportConsoleLogs(format = 'txt') {
 function searchLogs(query) {
     const output = document.getElementById('console-output');
     if (!output || !query.trim()) return;
-    
+
     const spans = output.querySelectorAll('span');
     let count = 0;
     const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    
+
     spans.forEach(span => {
         const original = span.dataset.original || span.textContent;
         span.dataset.original = original;
-        
+
         if (regex.test(original)) {
             span.innerHTML = original.replace(regex, '<mark class="log-highlight">$&</mark>');
             count++;
@@ -7604,14 +7674,14 @@ function searchLogs(query) {
             span.textContent = original;
         }
     });
-    
+
     showToast('info', `${count} occurrence(s) trouvée(s)`);
 }
 
 function clearLogSearch() {
     const output = document.getElementById('console-output');
     if (!output) return;
-    
+
     output.querySelectorAll('span').forEach(span => {
         if (span.dataset.original) {
             span.textContent = span.dataset.original;
@@ -7628,7 +7698,7 @@ const serverStats = {
     errors: 0,
     warnings: 0,
     playerJoins: 0,
-    
+
     reset() {
         this.startTime = new Date();
         this.commands = 0;
@@ -7636,13 +7706,13 @@ const serverStats = {
         this.warnings = 0;
         this.playerJoins = 0;
     },
-    
+
     trackLog(line) {
         if (/error|exception|failed/i.test(line)) this.errors++;
         if (/warn/i.test(line)) this.warnings++;
         if (/joined the game/i.test(line)) this.playerJoins++;
     },
-    
+
     getUptime() {
         if (!this.startTime) return '0s';
         const diff = Math.floor((Date.now() - this.startTime) / 1000);
@@ -7651,7 +7721,7 @@ const serverStats = {
         const s = diff % 60;
         return `${h}h ${m}m ${s}s`;
     },
-    
+
     getSummary() {
         return {
             uptime: this.getUptime(),
@@ -7729,11 +7799,11 @@ function applyServerTemplate(templateId) {
         showToast('error', 'Template non trouvé');
         return;
     }
-    
+
     if (!confirm(`Appliquer le template "${template.name}" ? Les valeurs actuelles seront remplacées.`)) {
         return;
     }
-    
+
     Object.entries(template.config).forEach(([key, value]) => {
         const input = document.querySelector(`[data-config-key="${key}"]`);
         if (input) {
@@ -7744,7 +7814,7 @@ function applyServerTemplate(templateId) {
             }
         }
     });
-    
+
     showToast('success', `Template "${template.name}" appliqué`);
 }
 
@@ -7753,17 +7823,17 @@ function applyServerTemplate(templateId) {
 // =====================================================
 const pluginFavorites = {
     key: 'mcpanel_plugin_favorites',
-    
+
     load() {
         try {
             return JSON.parse(localStorage.getItem(this.key) || '[]');
         } catch { return []; }
     },
-    
+
     save(favorites) {
         localStorage.setItem(this.key, JSON.stringify(favorites));
     },
-    
+
     toggle(pluginName) {
         const favs = this.load();
         const idx = favs.indexOf(pluginName);
@@ -7777,7 +7847,7 @@ const pluginFavorites = {
         this.save(favs);
         return idx === -1;
     },
-    
+
     isFavorite(pluginName) {
         return this.load().includes(pluginName);
     }
@@ -7802,12 +7872,12 @@ function confirmAction(message, callback) {
     `;
     document.body.appendChild(modal);
     modal.style.display = 'flex';
-    
+
     document.getElementById('confirm-action-btn').onclick = () => {
         modal.remove();
         callback();
     };
-    
+
     setTimeout(() => modal.classList.add('show'), 10);
 }
 
@@ -7816,7 +7886,7 @@ function confirmAction(message, callback) {
 // =====================================================
 function toggleMaintenanceMode(serverName) {
     const isEnabled = localStorage.getItem(`maintenance_${serverName}`) === 'true';
-    
+
     if (!isEnabled) {
         confirmAction('Activer le mode maintenance ? Les joueurs ne pourront plus se connecter.', () => {
             localStorage.setItem(`maintenance_${serverName}`, 'true');
@@ -7844,7 +7914,7 @@ function updateMaintenanceUI(enabled) {
 // =====================================================
 const serverTimers = {
     timers: [],
-    
+
     add(name, minutes, callback) {
         const id = Date.now();
         const timer = {
@@ -7858,11 +7928,11 @@ const serverTimers = {
         showToast('info', `Minuterie "${name}" créée: ${minutes} min`);
         return id;
     },
-    
+
     check(id) {
         const timer = this.timers.find(t => t.id === id);
         if (!timer) return;
-        
+
         const remaining = timer.endTime - Date.now();
         if (remaining <= 0) {
             this.remove(id);
@@ -7870,7 +7940,7 @@ const serverTimers = {
             showToast('warning', `⏰ Minuterie "${timer.name}" terminée!`);
         }
     },
-    
+
     remove(id) {
         const idx = this.timers.findIndex(t => t.id === id);
         if (idx !== -1) {
@@ -7878,7 +7948,7 @@ const serverTimers = {
             this.timers.splice(idx, 1);
         }
     },
-    
+
     getAll() {
         return this.timers.map(t => ({
             id: t.id,
@@ -7893,31 +7963,31 @@ const serverTimers = {
 // =====================================================
 const customShortcuts = {
     key: 'mcpanel_shortcuts',
-    
+
     load() {
         try {
             return JSON.parse(localStorage.getItem(this.key) || '{}');
         } catch { return {}; }
     },
-    
+
     save(shortcuts) {
         localStorage.setItem(this.key, JSON.stringify(shortcuts));
     },
-    
+
     add(alias, command) {
         const shortcuts = this.load();
         shortcuts[alias] = command;
         this.save(shortcuts);
         showToast('success', `Raccourci "/${alias}" créé`);
     },
-    
+
     remove(alias) {
         const shortcuts = this.load();
         delete shortcuts[alias];
         this.save(shortcuts);
         showToast('info', `Raccourci "/${alias}" supprimé`);
     },
-    
+
     expand(input) {
         const shortcuts = this.load();
         for (const [alias, cmd] of Object.entries(shortcuts)) {
@@ -7943,13 +8013,13 @@ const RAM_PRESETS = {
 function applyRamPreset(presetId) {
     const preset = RAM_PRESETS[presetId];
     if (!preset) return;
-    
+
     const minRam = document.getElementById('min-ram');
     const maxRam = document.getElementById('max-ram');
-    
+
     if (minRam) minRam.value = preset.min;
     if (maxRam) maxRam.value = preset.max;
-    
+
     showToast('success', `RAM: ${preset.label}`);
 }
 
@@ -7965,13 +8035,13 @@ function copyServerInfo() {
         ip: window.location.hostname,
         port: '25565'
     };
-    
+
     const text = `🎮 Serveur: ${info.name}
 📊 Status: ${info.status}
 🔢 Version: ${info.version}
 👥 Joueurs: ${info.players}
 🌐 IP: ${info.ip}:${info.port}`;
-    
+
     navigator.clipboard.writeText(text)
         .then(() => showToast('success', 'Infos serveur copiées!'))
         .catch(() => showToast('error', 'Erreur de copie'));
@@ -7982,27 +8052,45 @@ function copyServerInfo() {
 // =====================================================
 const themeManager = {
     key: 'mcpanel_theme',
-    
+    colorKey: 'mcpanel_accent_color',
+
     get() {
         return localStorage.getItem(this.key) || 'dark';
     },
-    
+
+    getColor() {
+        return localStorage.getItem(this.colorKey) || '#6c5ce7';
+    },
+
     set(theme) {
         localStorage.setItem(this.key, theme);
         document.documentElement.dataset.theme = theme;
         document.body.classList.toggle('light-mode', theme === 'light');
         showToast('info', `Thème: ${theme === 'dark' ? 'Sombre' : 'Clair'}`);
     },
-    
+
+    setColor(color) {
+        localStorage.setItem(this.colorKey, color);
+        document.documentElement.style.setProperty('--primary-color', color);
+        document.documentElement.style.setProperty('--accent-color', color);
+    },
+
     toggle() {
         const current = this.get();
         this.set(current === 'dark' ? 'light' : 'dark');
     },
-    
+
     init() {
         const saved = this.get();
+        const savedColor = this.getColor();
+
         document.documentElement.dataset.theme = saved;
         document.body.classList.toggle('light-mode', saved === 'light');
+
+        if (savedColor) {
+            document.documentElement.style.setProperty('--primary-color', savedColor);
+            document.documentElement.style.setProperty('--accent-color', savedColor);
+        }
     }
 };
 
@@ -8011,15 +8099,15 @@ const themeManager = {
 // =====================================================
 async function loadLogFiles() {
     if (!currentServer) return;
-    
+
     try {
         const response = await fetch(`/api/servers/${currentServer}/logs`);
         if (!response.ok) throw new Error('Erreur chargement logs');
-        
+
         const logs = await response.json();
         const container = document.getElementById('log-files-list');
         if (!container) return;
-        
+
         container.innerHTML = logs.map(log => `
             <div class="log-file-item" onclick="viewLogFile('${log.name}')">
                 <span class="log-icon">📄</span>
@@ -8060,17 +8148,17 @@ const commandUndo = {
         'gamerule keepInventory true': 'gamerule keepInventory false',
         'gamerule keepInventory false': 'gamerule keepInventory true'
     },
-    
+
     track(cmd) {
         this.lastCommand = cmd;
     },
-    
+
     undo() {
         if (!this.lastCommand) {
             showToast('info', 'Aucune commande à annuler');
             return;
         }
-        
+
         const undoCmd = this.undoMap[this.lastCommand];
         if (undoCmd) {
             sendCommand(undoCmd);
@@ -8146,7 +8234,7 @@ function showPermissionHelper() {
             <span class="perm-desc">${p.desc}</span>
         </div>
     `).join('');
-    
+
     const modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = `
@@ -8176,27 +8264,27 @@ const autoMonitor = {
         memory: 85,
         players: 0
     },
-    
+
     start(checkInterval = 30000) {
         this.stop();
         this.interval = setInterval(() => this.check(), checkInterval);
         showToast('info', 'Surveillance automatique activée');
     },
-    
+
     stop() {
         if (this.interval) {
             clearInterval(this.interval);
             this.interval = null;
         }
     },
-    
+
     async check() {
         try {
             const response = await fetch(`/api/servers/${currentServer}/stats`);
             if (!response.ok) return;
-            
+
             const stats = await response.json();
-            
+
             if (stats.cpu > this.thresholds.cpu) {
                 showToast('warning', `⚠️ CPU élevé: ${stats.cpu}%`);
             }
@@ -8207,7 +8295,7 @@ const autoMonitor = {
             console.error('Erreur surveillance:', err);
         }
     },
-    
+
     setThreshold(type, value) {
         if (this.thresholds.hasOwnProperty(type)) {
             this.thresholds[type] = value;
@@ -8226,10 +8314,10 @@ function setupQuickActions() {
         { icon: '☀️', label: 'Beau temps', cmd: 'weather clear', key: 'W' },
         { icon: '📢', label: 'Annonce', cmd: 'say', key: 'A' }
     ];
-    
+
     const container = document.getElementById('quick-actions');
     if (!container) return;
-    
+
     container.innerHTML = actions.map(a => `
         <button class="quick-action-btn" onclick="${a.cmd === 'say' ? 'promptAnnounce()' : `sendCommand('${a.cmd}')`}" title="${a.label} (${a.key})">
             <span class="qa-icon">${a.icon}</span>
@@ -8250,13 +8338,13 @@ function promptAnnounce() {
 // =====================================================
 const connectionStatus = {
     isOnline: navigator.onLine,
-    
+
     init() {
         window.addEventListener('online', () => this.update(true));
         window.addEventListener('offline', () => this.update(false));
         this.update(navigator.onLine);
     },
-    
+
     update(online) {
         this.isOnline = online;
         const indicator = document.getElementById('connection-indicator');
@@ -8264,7 +8352,7 @@ const connectionStatus = {
             indicator.className = `connection-indicator ${online ? 'online' : 'offline'}`;
             indicator.title = online ? 'Connecté' : 'Hors ligne';
         }
-        
+
         if (!online) {
             showToast('error', '🔌 Connexion perdue!');
         } else if (this.isOnline !== online) {
@@ -8305,11 +8393,11 @@ const helpSystem = {
             'Gardez au moins 3 backups de sécurité'
         ]
     },
-    
+
     show(section) {
         const tips = this.tips[section] || ['Aucune aide disponible'];
         const tip = tips[Math.floor(Math.random() * tips.length)];
-        
+
         const toast = document.createElement('div');
         toast.className = 'help-tip';
         toast.innerHTML = `
@@ -8318,14 +8406,14 @@ const helpSystem = {
             <button class="help-dismiss" onclick="this.parentElement.remove()">×</button>
         `;
         document.body.appendChild(toast);
-        
+
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
         }, 8000);
     },
-    
+
     showAll(section) {
         const tips = this.tips[section] || [];
         const modal = document.createElement('div');
@@ -8356,48 +8444,48 @@ async function refreshServerStats() {
         showNotification('Aucun serveur sélectionné', 'warning');
         return;
     }
-    
+
     try {
         showNotification('Actualisation des statistiques...', 'info');
-        
+
         // Récupérer les stats du serveur
         const response = await apiFetch(`/api/server/${currentServer}/stats`);
         const stats = await response.json();
-        
+
         // Mettre à jour les cartes de statistiques (IDs du HTML)
         const statUptime = document.getElementById('stat-uptime');
         if (statUptime) statUptime.textContent = stats.uptime || '--';
-        
+
         const statTotalPlayers = document.getElementById('stat-total-players');
         if (statTotalPlayers) statTotalPlayers.textContent = `${stats.players_online || 0}/${stats.max_players || 20}`;
-        
+
         const statWorldSize = document.getElementById('stat-world-size');
         if (statWorldSize) statWorldSize.textContent = stats.disk_usage || '--';
-        
+
         const statPluginsCount = document.getElementById('stat-plugins-count');
         if (statPluginsCount) statPluginsCount.textContent = stats.plugin_count || 0;
-        
+
         // Mettre aussi à jour les stats de la console si visibles
         const consoleCpu = document.getElementById('stat-cpu');
         if (consoleCpu) consoleCpu.textContent = stats.cpu ? `${stats.cpu.toFixed(1)}%` : '0%';
-        
+
         const consoleRam = document.getElementById('stat-ram');
         if (consoleRam) consoleRam.textContent = stats.ram_mb ? `${stats.ram_mb} MB` : '0 MB';
-        
+
         const consolePlayers = document.getElementById('stat-players');
         if (consolePlayers) consolePlayers.textContent = `${stats.players_online || 0}`;
-        
+
         const consoleTps = document.getElementById('stat-tps');
         if (consoleTps) consoleTps.textContent = stats.tps || '20.0';
-        
+
         // Charger les top joueurs
         await loadTopPlayers();
-        
+
         // Initialiser les graphiques si pas encore fait
         initStatsCharts();
-        
+
         showNotification('Statistiques actualisées', 'success');
-        
+
     } catch (error) {
         console.error('Erreur lors du rafraîchissement des stats:', error);
         showNotification('Erreur lors du chargement des statistiques', 'error');
@@ -8409,30 +8497,30 @@ async function refreshServerStats() {
  */
 async function loadTopPlayers() {
     if (!currentServer) return;
-    
+
     const container = document.getElementById('top-players-grid');
     if (!container) return;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/players`);
         const players = await response.json();
-        
+
         if (!players || players.length === 0) {
             container.innerHTML = '<p class="no-data">Aucun joueur enregistré</p>';
             return;
         }
-        
+
         // Trier par temps de jeu (si disponible) ou par dernière connexion
         const sortedPlayers = players
             .sort((a, b) => (b.play_time || 0) - (a.play_time || 0))
             .slice(0, 10); // Top 10
-        
+
         let html = '';
         sortedPlayers.forEach((player, index) => {
             const rankClass = index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : '';
             const playtime = formatPlaytime(player.play_time || 0);
             const avatar = `https://mc-heads.net/avatar/${player.name}/32`;
-            
+
             html += `
                 <div class="top-player-card">
                     <div class="top-player-rank ${rankClass}">${index + 1}</div>
@@ -8444,9 +8532,9 @@ async function loadTopPlayers() {
                 </div>
             `;
         });
-        
+
         container.innerHTML = html;
-        
+
     } catch (error) {
         console.error('Erreur chargement top joueurs:', error);
         container.innerHTML = '<p class="no-data">Erreur de chargement</p>';
@@ -8458,10 +8546,10 @@ async function loadTopPlayers() {
  */
 function formatPlaytime(seconds) {
     if (!seconds || seconds === 0) return 'Jamais connecté';
-    
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    
+
     if (hours > 0) {
         return `${hours}h ${minutes}m`;
     }
@@ -8479,7 +8567,7 @@ function initStatsCharts() {
     const perfCtx = document.getElementById('performance-chart');
     if (perfCtx && !performanceChart) {
         const ctx = perfCtx.getContext('2d');
-        
+
         // Afficher un message au lieu de fausses données
         performanceChart = new Chart(ctx, {
             type: 'line',
@@ -8537,7 +8625,7 @@ function initStatsCharts() {
             }
         });
     }
-    
+
     // Graphique des joueurs - Même chose, pas de fausses données
     const playersCtx = document.getElementById('players-chart');
     if (playersCtx && !playersChart) {
@@ -8605,10 +8693,10 @@ function openServerSettings() {
         showNotification('Aucun serveur sélectionné', 'warning');
         return;
     }
-    
+
     // Afficher la section des paramètres
     showSection('settings');
-    
+
     // Charger les paramètres du serveur
     loadServerProperties();
 }
@@ -8618,41 +8706,41 @@ function openServerSettings() {
  */
 async function loadServerProperties() {
     if (!currentServer) return;
-    
+
     try {
         const response = await apiFetch(`/api/server/${currentServer}/properties`);
         const props = await response.json();
-        
+
         // Remplir le formulaire de propriétés
-        const propsContainer = document.getElementById('server-properties') || 
-                               document.getElementById('properties-editor');
-        
+        const propsContainer = document.getElementById('server-properties') ||
+            document.getElementById('properties-editor');
+
         if (propsContainer) {
             let html = '<div class="properties-grid">';
-            
+
             for (const [key, value] of Object.entries(props)) {
-                const inputType = typeof value === 'boolean' ? 'checkbox' : 
-                                  typeof value === 'number' ? 'number' : 'text';
-                
+                const inputType = typeof value === 'boolean' ? 'checkbox' :
+                    typeof value === 'number' ? 'number' : 'text';
+
                 html += `
                     <div class="property-item">
                         <label for="prop-${key}">${key.replace(/-/g, ' ').replace(/_/g, ' ')}</label>
-                        ${inputType === 'checkbox' ? 
-                            `<input type="checkbox" id="prop-${key}" name="${key}" ${value ? 'checked' : ''}>` :
-                            `<input type="${inputType}" id="prop-${key}" name="${key}" value="${value}">`
-                        }
+                        ${inputType === 'checkbox' ?
+                        `<input type="checkbox" id="prop-${key}" name="${key}" ${value ? 'checked' : ''}>` :
+                        `<input type="${inputType}" id="prop-${key}" name="${key}" value="${value}">`
+                    }
                     </div>
                 `;
             }
-            
+
             html += '</div>';
             html += `<button class="btn btn-primary" onclick="saveServerProperties()">
                         <i class="fas fa-save"></i> Sauvegarder
                      </button>`;
-            
+
             propsContainer.innerHTML = html;
         }
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement des propriétés:', error);
         showNotification('Erreur lors du chargement des propriétés', 'error');
@@ -8664,14 +8752,14 @@ async function loadServerProperties() {
  */
 async function saveServerProperties() {
     if (!currentServer) return;
-    
+
     try {
         const form = document.querySelector('.properties-grid');
         if (!form) return;
-        
+
         const inputs = form.querySelectorAll('input');
         const properties = {};
-        
+
         inputs.forEach(input => {
             if (input.type === 'checkbox') {
                 properties[input.name] = input.checked;
@@ -8681,19 +8769,19 @@ async function saveServerProperties() {
                 properties[input.name] = input.value;
             }
         });
-        
+
         const response = await apiFetch(`/api/server/${currentServer}/properties`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            
             body: JSON.stringify(properties)
         });
-        
+
         if (response.ok) {
             showNotification('Propriétés sauvegardées avec succès', 'success');
         } else {
             throw new Error('Erreur lors de la sauvegarde');
         }
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showNotification('Erreur lors de la sauvegarde des propriétés', 'error');
@@ -8707,16 +8795,16 @@ async function saveServerProperties() {
 document.addEventListener('DOMContentLoaded', () => {
     // Init thème
     themeManager.init();
-    
+
     // Init status connexion
     connectionStatus.init();
-    
+
     // Setup quick actions si disponible
     setupQuickActions();
-    
+
     // Charger la langue sauvegardée
     loadLanguage();
-    
+
     // Fermer le dropdown de langue quand on clique ailleurs
     document.addEventListener('click', (e) => {
         const langSelector = document.querySelector('.language-selector');
@@ -8725,7 +8813,7 @@ document.addEventListener('DOMContentLoaded', () => {
             dropdown.classList.remove('show');
         }
     });
-    
+
     // Afficher aide au premier lancement
     if (!localStorage.getItem('mcpanel_help_shown')) {
         setTimeout(() => helpSystem.show('console'), 3000);
@@ -8733,3 +8821,796 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+
+// ==========================================
+// MOD MANAGER (NEW)
+// ==========================================
+async function searchMods() {
+    const query = document.getElementById('mods-search-input').value;
+    const container = document.getElementById('mods-results-container');
+
+    if (!query) return;
+
+    container.innerHTML = '<div class="loader"></div>';
+
+    try {
+        const res = await apiFetch(`/api/mods/search`, {
+            method: 'POST',
+            body: JSON.stringify({ query: query, limit: 10 })
+        });
+        const data = await res.json();
+
+        container.innerHTML = '';
+        if (data.results && data.results.length > 0) {
+            data.results.forEach(mod => {
+                container.innerHTML += `
+                    <div class="card" style="padding: 15px; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div style="display:flex; align-items:center; margin-bottom:10px">
+                            <img src="${mod.icon_url || '/static/img/default_mod.png'}" style="width:48px;height:48px;border-radius:4px;margin-right:10px" onerror="this.src='/static/img/default_icon.png'">
+                            <div>
+                                <h4 style="margin:0">${mod.title}</h4>
+                                <span style="font-size:0.8em; opacity:0.7">${mod.author}</span>
+                            </div>
+                        </div>
+                        <p style="font-size:0.9em; margin-bottom:15px; flex-grow:1">${mod.description}</p>
+                        <button class="btn-primary" onclick="installMod('${mod.project_id}')">
+                            <i class="fas fa-download"></i> Installer
+                        </button>
+                    </div>
+                `;
+            });
+        } else {
+            container.innerHTML = '<p>Aucun résultat.</p>';
+        }
+    } catch (e) {
+        container.innerHTML = `<p class="text-error">Erreur: ${e.message}</p>`;
+    }
+}
+
+async function installMod(projectId) {
+    if (!currentServer) return;
+    if (!confirm("Voulez-vous installer ce mod (dernière version) ?")) return;
+
+    try {
+        showToast('info', "Installation en cours...");
+        const res = await apiFetch(`/api/server/${currentServer}/mods/install`, {
+            method: 'POST',
+            body: JSON.stringify({ project_id: projectId })
+        });
+        const data = await res.json();
+
+        if (data.status === 'success') {
+            showToast('success', data.message);
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur d'installation");
+    }
+}
+
+async function optimizeServer() {
+    if (!currentServer) return;
+    if (!confirm("Attention: Cela va modifier les paramètres de démarrage Java (Aikar's Flags). Redémarrage requis. Continuer ?")) return;
+
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/optimize`, { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', data.message);
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur optimisation");
+    }
+}
+async function initiateIconUpload() {
+    if (!currentServer) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg';
+
+    input.onchange = async (e) => {
+        if (!e.target.files.length) return;
+        const file = e.target.files[0];
+
+        try {
+            const resizedBlob = await resizeImageTo64(file);
+            await uploadIcon(resizedBlob);
+        } catch (err) {
+            showToast('error', "Erreur image: " + err.message);
+        }
+    };
+
+    input.click();
+}
+
+function resizeImageTo64(file) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+
+            // Draw resized
+            ctx.drawImage(img, 0, 0, 64, 64);
+
+            canvas.toBlob((blob) => {
+                if (blob) resolve(blob);
+                else reject(new Error("Canvas error"));
+            }, 'image/png');
+        };
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+    });
+}
+
+async function uploadIcon(blob) {
+    const formData = new FormData();
+    formData.append('icon', blob, 'server-icon.png'); // Force name
+
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/icon`, {
+            method: 'POST',
+            body: formData,
+            // Skip Content-Type header to let browser set boundary
+            headers: {}
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', "Icône mise à jour! Redémarrez le serveur.");
+            // Refresh icon visually if possible (cache busting)
+            const iconImg = document.querySelector('#server-detail-icon img');
+            if (iconImg) iconImg.src = `/api/server/${currentServer}/icon/raw?t=${Date.now()}`; // Need raw endpoint or serve static
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur upload icon");
+    }
+}
+
+// ==========================================
+// MANAGER DE FICHIERS (NEW)
+// ==========================================
+let currentFilePath = "";
+
+function formatBytes(bytes, decimals = 2) {
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+async function loadFiles(path) {
+    if (!currentServer) return;
+
+    // Path logic
+    if (path === '..') {
+        const parts = currentFilePath.split('/').filter(p => p);
+        parts.pop();
+        path = parts.join('/');
+    } else if (path !== "" && currentFilePath && !path.startsWith('/')) {
+        path = currentFilePath + '/' + path;
+    }
+
+    // Clean path
+    path = path.replace(/\/+/g, '/').replace(/^\//, '');
+
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/list?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        if (data.status === 'success') {
+            currentFilePath = path;
+            renderFiles(data.files, path);
+        } else {
+            showToast('error', data.message || "Erreur chargement fichiers");
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('error', "Erreur chargement fichiers");
+    }
+}
+
+function renderFiles(files, path) {
+    const tbody = document.getElementById('files-list-body');
+    const pathDisplay = document.getElementById('files-current-path');
+    if (pathDisplay) pathDisplay.textContent = '/' + path;
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    // Sort: folders first
+    files.sort((a, b) => (a.is_dir === b.is_dir) ? 0 : a.is_dir ? -1 : 1);
+
+    files.forEach(f => {
+        const icon = f.is_dir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file-code text-secondary"></i>';
+        const actions = `
+            <button class="btn-icon" onclick="${f.is_dir ? `navigateFiles('${f.name}')` : `openFileEditor('${f.name}')`}" title="${f.is_dir ? 'Ouvrir' : 'Editer'}">
+                ${f.is_dir ? '<i class="fas fa-chevron-right"></i>' : '<i class="fas fa-edit"></i>'}
+            </button>
+            <button class="btn-icon text-danger" onclick="deleteFile('${f.name}')" title="Supprimer">
+                <i class="fas fa-trash"></i>
+            </button>
+            ${!f.is_dir ? `<button class="btn-icon" onclick="downloadFile('${f.name}')" title="Télécharger"><i class="fas fa-download"></i></button>` : ''}
+        `;
+
+        tbody.innerHTML += `
+            <tr onclick="${f.is_dir ? `navigateFiles('${f.name}')` : ''}" style="cursor: pointer" class="file-row">
+                <td>${icon} <span style="margin-left:8px">${f.name}</span></td>
+                <td>${f.is_dir ? '-' : formatBytes(f.size)}</td>
+                <td>${new Date(f.modified).toLocaleString()}</td>
+                <td style="text-align:right">${actions}</td>
+            </tr>
+        `;
+    });
+}
+
+function navigateFiles(dir) {
+    loadFiles(dir);
+}
+
+// File actions
+let editorCurrentFile = "";
+
+async function openFileEditor(filename) {
+    const path = currentFilePath ? `${currentFilePath}/${filename}` : filename;
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/read?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        if (data.status === 'success') {
+            editorCurrentFile = path;
+            document.getElementById('file-editor-content').value = data.content;
+            document.getElementById('file-editor-filename').textContent = filename;
+            document.getElementById('file-editor-modal').style.display = 'block';
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur lecture fichier");
+    }
+}
+
+async function saveFileEditor() {
+    const content = document.getElementById('file-editor-content').value;
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/save`, {
+            method: 'POST',
+            body: JSON.stringify({ path: editorCurrentFile, content })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', "Fichier sauvegardé");
+            closeFileEditor();
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur sauvegarde");
+    }
+}
+
+function closeFileEditor() {
+    document.getElementById('file-editor-modal').style.display = 'none';
+}
+
+async function deleteFile(filename) {
+    if (!confirm(`Supprimer ${filename} ?`)) return;
+    const path = currentFilePath ? `${currentFilePath}/${filename}` : filename;
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/delete`, {
+            method: 'POST',
+            body: JSON.stringify({ path })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', "Supprimé");
+            loadFiles('');
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur suppression");
+    }
+}
+
+function downloadFile(filename) {
+    const path = currentFilePath ? `${currentFilePath}/${filename}` : filename;
+    window.location.href = `/api/server/${currentServer}/files/download?path=${encodeURIComponent(path)}`;
+}
+
+async function createFolder() {
+    const name = prompt("Nom du sous-dossier:");
+    if (!name) return;
+    const path = currentFilePath ? `${currentFilePath}/${name}` : name;
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/mkdir`, {
+            method: 'POST',
+            body: JSON.stringify({ path })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', "Dossier créé");
+            loadFiles('');
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur création");
+    }
+}
+
+async function uploadFiles() {
+    const input = document.getElementById('file-upload-input');
+    const files = input.files;
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    formData.append('path', currentFilePath);
+
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/upload`, {
+            method: 'POST',
+            body: formData,
+            headers: {} // Don't set Content-Type, let browser handle multipart
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', "Fichiers uploadés");
+            loadFiles('');
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', "Erreur upload");
+    }
+}
+
+
+// ===================== AMÉLIORATIONS FRONTEND =====================
+
+// Amélioration 41: Dashboard rapide
+async function loadDashboard() {
+    try {
+        const res = await apiFetch('/api/dashboard');
+        const data = await res.json();
+        if (data.status === 'success') {
+            updateDashboardUI(data);
+        }
+    } catch (e) {
+        console.error('Erreur dashboard:', e);
+    }
+}
+
+function updateDashboardUI(data) {
+    const dashboardEl = document.getElementById('dashboard-stats');
+    if (!dashboardEl) return;
+    
+    dashboardEl.innerHTML = `
+        <div class="stat-card">
+            <i class="fas fa-server"></i>
+            <div class="stat-value">${data.servers?.running || 0}/${data.servers?.total || 0}</div>
+            <div class="stat-label">Serveurs actifs</div>
+        </div>
+        <div class="stat-card">
+            <i class="fas fa-microchip"></i>
+            <div class="stat-value">${data.system?.cpu_percent || 0}%</div>
+            <div class="stat-label">CPU</div>
+        </div>
+        <div class="stat-card">
+            <i class="fas fa-memory"></i>
+            <div class="stat-value">${data.system?.ram_percent || 0}%</div>
+            <div class="stat-label">RAM</div>
+        </div>
+    `;
+}
+
+// Amélioration 42: Export des logs
+async function exportLogs() {
+    if (!currentServer) {
+        showToast('warning', 'Sélectionnez un serveur');
+        return;
+    }
+    window.location.href = `/api/server/${currentServer}/logs/export`;
+    showToast('info', 'Téléchargement des logs...');
+}
+
+// Amélioration 43: Recherche dans les logs
+async function searchLogs(query) {
+    if (!currentServer) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/logs/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            displayLogs(data.logs);
+            showToast('info', `${data.count} résultats trouvés`);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur de recherche');
+    }
+}
+
+// Amélioration 44: Clone de serveur
+async function cloneServer(serverName) {
+    const newName = prompt('Nom du nouveau serveur:', `${serverName}_clone`);
+    if (!newName) return;
+    
+    try {
+        showToast('info', 'Clonage en cours...');
+        const res = await apiFetch(`/api/server/${serverName}/clone`, {
+            method: 'POST',
+            body: JSON.stringify({ new_name: newName })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showToast('success', data.message);
+            loadServers();
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur de clonage');
+    }
+}
+
+// Amélioration 45: Export de monde
+async function exportWorld() {
+    if (!currentServer) {
+        showToast('warning', 'Sélectionnez un serveur');
+        return;
+    }
+    showToast('info', 'Préparation de l\'export...');
+    window.location.href = `/api/server/${currentServer}/world/export`;
+}
+
+// Amélioration 46: Broadcast message
+async function broadcastMessage() {
+    const message = prompt('Message à envoyer à tous les serveurs:');
+    if (!message) return;
+    
+    try {
+        const res = await apiFetch('/api/broadcast', {
+            method: 'POST',
+            body: JSON.stringify({ message })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showToast('success', `Message envoyé à ${data.sent_to.length} serveurs`);
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur d\'envoi');
+    }
+}
+
+// Amélioration 47: Suggestion de port
+async function suggestPort() {
+    try {
+        const res = await apiFetch('/api/port/suggest');
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            const portInput = document.getElementById('server-port-input');
+            if (portInput) {
+                portInput.value = data.port;
+            }
+            return data.port;
+        }
+    } catch (e) {
+        console.error('Erreur suggestion port:', e);
+    }
+    return 25565;
+}
+
+// Amélioration 48: Présets de commandes
+async function loadCommandPresets() {
+    try {
+        const res = await apiFetch('/api/command/presets');
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            displayCommandPresets(data.presets);
+        }
+    } catch (e) {
+        console.error('Erreur présets:', e);
+    }
+}
+
+function displayCommandPresets(presets) {
+    const container = document.getElementById('command-presets');
+    if (!container) return;
+    
+    let html = '';
+    for (const [category, commands] of Object.entries(presets)) {
+        html += `<div class="preset-category">
+            <h4>${category}</h4>
+            <div class="preset-buttons">`;
+        for (const cmd of commands) {
+            html += `<button class="preset-btn" onclick="useCommandPreset('${escapeHtmlAttr(cmd.command)}')" title="${escapeHtmlAttr(cmd.command)}">${escapeHtml(cmd.name)}</button>`;
+        }
+        html += '</div></div>';
+    }
+    container.innerHTML = html;
+}
+
+function useCommandPreset(command) {
+    const input = document.getElementById('cmd-input');
+    if (input) {
+        input.value = command;
+        input.focus();
+    }
+}
+
+// Amélioration 49: Vérification de mise à jour
+async function checkServerUpdate() {
+    if (!currentServer) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/update/check`);
+        const data = await res.json();
+        
+        if (data.status === 'success' && data.update_available) {
+            showToast('info', `Mise à jour disponible: Build ${data.latest_build}`);
+        }
+    } catch (e) {
+        console.error('Erreur vérification MAJ:', e);
+    }
+}
+
+// Amélioration 50: Actions par lot
+async function batchAction(action) {
+    const checkboxes = document.querySelectorAll('.server-checkbox:checked');
+    if (checkboxes.length === 0) {
+        showToast('warning', 'Sélectionnez des serveurs');
+        return;
+    }
+    
+    const servers = Array.from(checkboxes).map(cb => cb.dataset.server);
+    
+    if (!confirm(`${action} ${servers.length} serveur(s) ?`)) return;
+    
+    try {
+        const res = await apiFetch('/api/servers/batch', {
+            method: 'POST',
+            body: JSON.stringify({ action, servers })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showToast('success', `Action effectuée sur ${servers.length} serveurs`);
+            loadServers();
+        }
+    } catch (e) {
+        showToast('error', 'Erreur action par lot');
+    }
+}
+
+// Amélioration 51: Arrêt planifié
+async function scheduleShutdown(delay = 60) {
+    if (!currentServer) return;
+    
+    const message = prompt('Message d\'avertissement:', 'Le serveur va redémarrer!');
+    if (message === null) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/schedule/shutdown`, {
+            method: 'POST',
+            body: JSON.stringify({ delay, message })
+        });
+        const data = await res.json();
+        showToast('info', data.message);
+    } catch (e) {
+        showToast('error', 'Erreur planification');
+    }
+}
+
+// Amélioration 52: Statistiques de stockage
+async function loadStorageStats() {
+    try {
+        const res = await apiFetch('/api/storage/stats');
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            displayStorageStats(data);
+        }
+    } catch (e) {
+        console.error('Erreur stats stockage:', e);
+    }
+}
+
+function displayStorageStats(data) {
+    const container = document.getElementById('storage-stats');
+    if (!container) return;
+    
+    let html = `<div class="storage-total">Total: ${data.total_mb} MB</div><div class="storage-list">`;
+    for (const srv of data.servers.slice(0, 5)) {
+        const percent = (srv.size_mb / data.total_mb * 100).toFixed(1);
+        html += `<div class="storage-item">
+            <span>${srv.name}</span>
+            <div class="storage-bar" style="width: ${percent}%"></div>
+            <span>${srv.size_mb} MB</span>
+        </div>`;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+// Amélioration 53: Nettoyage des logs
+async function cleanupLogs() {
+    if (!currentServer) return;
+    
+    if (!confirm('Supprimer les logs de plus de 7 jours ?')) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/logs/cleanup`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        showToast('success', `${data.deleted} fichiers supprimés`);
+    } catch (e) {
+        showToast('error', 'Erreur nettoyage');
+    }
+}
+
+// Amélioration 54: EULA automatique
+async function acceptEula() {
+    if (!currentServer) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/eula/accept`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        showToast('success', data.message);
+    } catch (e) {
+        showToast('error', 'Erreur EULA');
+    }
+}
+
+// Amélioration 55: Configuration MOTD
+async function updateMotd() {
+    if (!currentServer) return;
+    
+    const motd = prompt('Nouveau MOTD (supporte les codes couleur §):');
+    if (motd === null) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/motd`, {
+            method: 'POST',
+            body: JSON.stringify({ motd })
+        });
+        const data = await res.json();
+        showToast('success', data.message);
+    } catch (e) {
+        showToast('error', 'Erreur MOTD');
+    }
+}
+
+// Amélioration 56: Toggle rapides
+async function quickToggle(setting, enabled) {
+    if (!currentServer) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/${setting}/toggle`, {
+            method: 'POST',
+            body: JSON.stringify({ enabled })
+        });
+        const data = await res.json();
+        showToast('success', `${setting} ${enabled ? 'activé' : 'désactivé'}`);
+    } catch (e) {
+        showToast('error', 'Erreur modification');
+    }
+}
+
+// Amélioration 57: Export configuration
+function exportConfig() {
+    if (!currentServer) {
+        showToast('warning', 'Sélectionnez un serveur');
+        return;
+    }
+    window.location.href = `/api/server/${currentServer}/config/export`;
+}
+
+// Amélioration 58: Restauration backup
+async function restoreBackup(backupName) {
+    if (!confirm(`Restaurer le backup ${backupName} ? Cette action est irréversible !`)) return;
+    
+    try {
+        showToast('info', 'Restauration en cours...');
+        const res = await apiFetch(`/api/server/${currentServer}/backup/${backupName}/restore`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showToast('success', data.message);
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur restauration');
+    }
+}
+
+// Amélioration 59: Suppression backup
+async function deleteBackup(backupName) {
+    if (!confirm(`Supprimer le backup ${backupName} ?`)) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/backup/${backupName}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showToast('success', 'Backup supprimé');
+            loadBackups();
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur suppression');
+    }
+}
+
+// Amélioration 60: Flags JVM optimisés
+async function getOptimizedFlags() {
+    if (!currentServer) return;
+    
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/jvm/flags`);
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showModal('Flags JVM Optimisés (Aikar)', `
+                <p>Copiez ces flags pour des performances optimales:</p>
+                <textarea readonly style="width:100%;height:200px;font-family:monospace;font-size:12px;">${data.combined}</textarea>
+                <button onclick="navigator.clipboard.writeText('${data.combined.replace(/'/g, "\\'")}'); showToast('success', 'Copié!')">Copier</button>
+            `);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur récupération flags');
+    }
+}
+
+// Amélioration: Modal générique
+function showModal(title, content) {
+    let modal = document.getElementById('generic-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'generic-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modal-title"></h3>
+                    <button class="btn-close" onclick="closeGenericModal()">&times;</button>
+                </div>
+                <div id="modal-body"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = content;
+    modal.style.display = 'flex';
+}
+
+function closeGenericModal() {
+    const modal = document.getElementById('generic-modal');
+    if (modal) modal.style.display = 'none';
+}

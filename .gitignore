@@ -1,42 +1,259 @@
-# Python
+# ====================================
+# DONNÉES SENSIBLES & SECRETS
+# ====================================
+
+# Secrets Flask
+.secret_key
+*.secret
+
+# Base de données utilisateurs (contient mots de passe hashés)
+data/users.json
+data/auth.json
+
+# Logs pouvant contenir données sensibles
+*.log
+logs/
+data/logs/
+
+# Cache API (peut contenir données sensibles)
+data/api_cache/
+
+# Sessions
+flask_session/
+sessions/
+
+# Configurations avec secrets
+config.json
+.env
+.env.local
+*.env
+.pipk_venv/
+
+# Clés SSH/API
+*.pem
+*.key
+id_rsa*
+*.pub
+
+# ====================================
+# SERVEURS MINECRAFT (GROS FICHIERS)
+# ====================================
+
+# Dossiers serveurs complets
+servers/*
+!servers/.gitkeep
+
+# Fichiers JAR serveurs
+*.jar
+!example.jar
+
+# Mondes Minecraft (très gros)
+servers/*/world/
+servers/*/world_nether/
+servers/*/world_the_end/
+
+# Backups serveurs
+backups/
+*.zip
+!example_backup.zip
+
+# Logs serveurs
+servers/*/logs/
+latest.log
+
+# Cache serveurs
+servers/*/cache/
+servers/*/.cache/
+
+# ====================================
+# JAVA & RUNTIME
+# ====================================
+
+# JRE téléchargés automatiquement
+servers/_java/
+_java/
+*.tar.gz
+jdk*/
+jre*/
+
+# ====================================
+# PYTHON
+# ====================================
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
-.Python
+
+# Virtual environments
 venv/
-.venv/
 env/
 ENV/
-*.egg-info/
-dist/
+.venv
+
+# Distribution / packaging
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Serveurs Minecraft
-servers/
-!servers/.gitkeep
+# PyInstaller
+*.manifest
+*.spec
 
-# Data (sensitive)
-data/users.json
-data/sessions.json
-data/audit.log
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
 
-# Logs
-*.log
-latest.log
+# ====================================
+# EDITEURS & IDEs
+# ====================================
 
-# IDE
+# VSCode
 .vscode/
+*.code-workspace
+
+# PyCharm
 .idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
 *.swp
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
+# Emacs
+*~
+\#*\#
+.\#*
 
-# Config local
-*.local
-.env
+# ====================================
+# OS
+# ====================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ====================================
+# FICHIERS TEMPORAIRES
+# ====================================
+
+# Temp files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Downloads temporaires
+downloads/
+*.download
+
+# Uploads temporaires
+uploads/
+
+# Lock files
+*.lock
+.lock
+
+# ====================================
+# TUNNEL & NETWORKING
+# ====================================
+
+# Tunnel binaries téléchargés
+servers/_tunnel/
+_tunnel/
+bore
+bore.exe
+cloudflared
+cloudflared.exe
+*.tunnel
+
+# ====================================
+# NODE & FRONTEND (si applicable)
+# ====================================
+
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# ====================================
+# DIVERS
+# ====================================
+
+# Documentation générée
+docs/_build/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Profiling
+*.prof
+
+# Gemini artifacts (éviter de commit mes notes)
+.gemini/
+
+# Tests artifacts
+test_results/
+.test_cache/
+data/notifications_history.json
+data/notifications_history.json
+data/notifications_history.json
+data/notifications_history.json
+data/notifications_history.json

@@ -7,6 +7,61 @@ import subprocess
 import time
 import zipfile
 import tarfile
+from typing import List, Dict, Any
+
+# Templates de serveurs pré-configurés
+SERVER_TEMPLATES = {
+    'vanilla_survival': {
+        'name': 'Survival Vanilla',
+        'description': 'Serveur survival classique optimisé avec Paper',
+        'icon': 'fa-mountain',
+        'config': {
+            'server_type': 'paper',
+            'difficulty': 'normal',
+            'gamemode': 'survival',
+            'pvp': 'true',
+            'spawn-protection': '16'
+        }
+    },
+    'creative': {
+        'name': 'Creative Building',
+        'description': 'Mode créatif avec monde plat pour constructions',
+        'icon': 'fa-palette',
+        'config': {
+            'server_type': 'paper',
+            'gamemode': 'creative',
+            'difficulty': 'peaceful',
+            'pvp': 'false',
+            'spawn-protection': '0',
+            'level-type': 'flat',
+            'spawn-monsters': 'false'
+        }
+    },
+    'pvp_arena': {
+        'name': 'PvP Arena',
+        'description': 'Arène PvP compétitive avec respawn rapide',
+        'icon': 'fa-crosshairs',
+        'config': {
+            'server_type': 'paper',
+            'pvp': 'true',
+            'difficulty': 'hard',
+            'spawn-protection': '0',
+            'max-world-size': '1000',
+            'hardcore': 'false'
+        }
+    },
+    'modded': {
+        'name': 'Modded (Forge)',
+        'description': 'Serveur moddé avec Forge',
+        'icon': 'fa-cubes',
+        'config': {
+            'server_type': 'forge',
+            'ram_max': '4096M',
+            'ram_min': '2048M'
+        }
+    }
+}
+
 from datetime import datetime
 
 import psutil
@@ -186,11 +241,21 @@ class ServerManager:
 
     def _validate_name(self, name):
         """Valide le nom du serveur pour éviter les injections de chemin"""
-        if not name or not re.match(r'^[a-zA-Z0-9_-]+$', name):
-            raise Exception("Nom invalide. Utilisez uniquement lettres, chiffres, - et _")
-        if len(name) > 50:
-            raise Exception("Nom trop long (max 50 caractères)")
+        if not name or not re.match(r'^[a-zA-Z0-9_\-]+$', name):
+            raise Exception("Nom invalide. Utilisez uniquement lettres, chiffres, - et _ (PAS D'ESPACES)")
+        if len(name) > 30:
+            raise Exception("Nom trop long (max 30 caractères)")
         return name
+
+    def get_server_templates(self) -> List[Dict[str, Any]]:
+        """Retourne la liste des templates de serveurs disponibles"""
+        return [
+            {
+                'id': template_id,
+                **template_data
+            }
+            for template_id, template_data in SERVER_TEMPLATES.items()
+        ]
 
     def _get_server_path(self, name):
         """Retourne le chemin sécurisé du serveur"""
@@ -201,34 +266,70 @@ class ServerManager:
             raise Exception("Chemin invalide")
         return path
 
-    def list_servers(self):
+    def list_servers(self, owner=None):
         if not os.path.exists(self.base_dir):
             return []
+        
         servers = []
         for d in os.listdir(self.base_dir):
             full_path = os.path.join(self.base_dir, d)
-            if os.path.isdir(full_path) and os.path.exists(os.path.join(full_path, "server.jar")):
-                servers.append(d)
+            if os.path.isdir(full_path):
+                 # Check for server.jar OR owner file
+                 if os.path.exists(os.path.join(full_path, "server.jar")) or os.path.exists(os.path.join(full_path, "server_config.json")):
+                    
+                    # Owner filter
+                    if owner and owner != "admin":
+                        # Check ownership in config
+                        config_path = os.path.join(full_path, "manager_config.json")
+                        try:
+                            if os.path.exists(config_path):
+                                with open(config_path, "r") as f:
+                                    conf = json.load(f)
+                                    if conf.get("owner") != owner:
+                                        continue # Skip if not owner
+                            else:
+                                continue # Legacy servers owned by nobody/admin? Skip for regular users
+                        except:
+                            continue
+
+                    servers.append(d)
         return servers
 
     def get_available_versions(self):
-        """Récupère les versions avec cache de 5 minutes"""
-        now = time.time()
-        if self._versions_cache and (now - self._versions_cache_time) < 300:
-            return self._versions_cache
+        """Récupère les versions Paper avec cache persistant (24h) + fallback"""
+        from core.api_cache import cache
         
+        # 1. Essayer cache persistant (24h)
+        cached = cache.get('paper_versions', max_age_hours=24)
+        if cached:
+            return cached
+        
+        # 2. Essayer API Paper
         try:
             r = requests.get("https://api.papermc.io/v2/projects/paper", timeout=10)
             r.raise_for_status()
-            self._versions_cache = r.json()["versions"][::-1]
-            self._versions_cache_time = now
-            return self._versions_cache
+            versions = r.json()["versions"][::-1]
+            cache.set('paper_versions', versions)
+            return versions
         except Exception as e:
-            print(f"[WARN] Impossible de récupérer les versions: {e}")
-            return ["1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1"]
+            print(f"[WARN] PaperMC API indisponible: {e}")
+        
+        # 3. Fallback hardcodé (versions populaires)
+        fallback = ["1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.19.4", "1.19.3", "1.19.2", "1.18.2"]
+        cache.set('paper_versions', fallback)
+        print("[INFO] Utilisation des versions Paper par défaut")
+        return fallback
     
     def get_forge_versions(self):
-        """Récupère les versions Forge disponibles"""
+        """Récupère les versions Forge avec cache persistant (24h) + fallback"""
+        from core.api_cache import cache
+        
+        # 1. Cache
+        cached = cache.get('forge_versions', max_age_hours=24)
+        if cached:
+            return cached
+        
+        # 2. API
         try:
             r = requests.get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", timeout=10)
             r.raise_for_status()
@@ -243,26 +344,46 @@ class ServerManager:
                         versions[mc_ver]["recommended"] = val
                     else:
                         versions[mc_ver]["latest"] = val
+            cache.set('forge_versions', versions)
             return versions
         except Exception as e:
-            print(f"[WARN] Forge versions: {e}")
-            return {}
+            print(f"[WARN] Forge API indisponible: {e}")
+        
+        # 3. Fallback vide avec message
+        print("[INFO] Forge API inaccessible - création serveurs Forge indisponible")
+        return {}
     
     def get_fabric_versions(self):
-        """Récupère les versions Fabric disponibles"""
+        """Récupère les versions Fabric avec cache persistant (24h) + fallback"""
+        from core.api_cache import cache
+        
+        # 1. Cache
+        cached = cache.get('fabric_versions', max_age_hours=24)
+        if cached:
+            return cached
+        
+        # 2. API
         try:
-            r = requests.get("https://meta.fabricmc.net/v2/versions/game", timeout=10)
-            r.raise_for_status()
-            games = [v["version"] for v in r.json() if v.get("stable")]
+            loader_r = requests.get("https://meta.fabricmc.net/v2/versions/loader", timeout=10)
+            loader_r.raise_for_status()
+            loaders = loader_r.json()
             
-            r2 = requests.get("https://meta.fabricmc.net/v2/versions/loader", timeout=10)
-            r2.raise_for_status()
-            loaders = [v["version"] for v in r2.json()[:5]]  # Top 5 loaders
+            game_r = requests.get("https://meta.fabricmc.net/v2/versions/game", timeout=10)
+            game_r.raise_for_status()
+            games = game_r.json()
             
-            return {"game": games[:20], "loader": loaders}
+            result = {
+                "loader": [l["version"] for l in loaders if l.get("stable")],
+                "game": [g["version"] for g in games if g.get("stable")]
+            }
+            cache.set('fabric_versions', result)
+            return result
         except Exception as e:
-            print(f"[WARN] Fabric versions: {e}")
-            return {"game": [], "loader": []}
+            print(f"[WARN] Fabric API indisponible: {e}")
+        
+        # 3. Fallback vide
+        print("[INFO] Fabric API inaccessible - création serveurs Fabric indisponible")
+        return {"loader": [], "game": []}
     
     def download_forge_server(self, path, mc_version, forge_version):
         """Télécharge le serveur Forge"""
@@ -351,7 +472,7 @@ class ServerManager:
             print(f"[ERROR] Erreur sauvegarde config {name}: {e}")
             return False
 
-    def create_server(self, name, version, ram_min="1G", ram_max="2G", storage_limit=None, base_path=None, server_type="paper", loader_version=None):
+    def create_server(self, name, version, ram_min="1G", ram_max="2G", storage_limit=None, base_path=None, server_type="paper", loader_version=None, owner="admin"):
         """Crée un nouveau serveur avec options personnalisées"""
         # Utiliser le base_path personnalisé si fourni
         if base_path:
@@ -424,7 +545,7 @@ class ServerManager:
         
         with open(os.path.join(path, "server.properties"), "w", encoding="utf-8") as f:
             f.write("# Minecraft Server Properties\n")
-            f.write("motd=Serveur géré par MCPanel et maintenu par louckreos et rraattrruuee\n")
+            f.write("motd=Serveur géré par MCPanel\n")
             f.write("server-port=25565\n")
             f.write("max-players=20\n")
 
@@ -439,7 +560,8 @@ class ServerManager:
             "server_type": server_type,
             "java_version": java_version,
             "java_path": java_path if java_path else "java",
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
+            "owner": owner
         }
         
         if loader_version:
@@ -465,6 +587,12 @@ class ServerManager:
         elif action == "kill":
             self.kill(name)
 
+    def _is_port_in_use(self, port):
+        """Vérifie si un port est déjà utilisé"""
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('localhost', port)) == 0
+    
     def start(self, name):
         if self.is_running(name):
             return
@@ -479,6 +607,11 @@ class ServerManager:
             raise Exception(f"server.jar introuvable pour '{name}'")
         
         config = self.get_server_config(name)
+        
+        # Vérifier si le port est disponible
+        port = int(config.get('port', 25565))
+        if self._is_port_in_use(port):
+            raise Exception(f"Port {port} déjà utilisé. Arrêtez l'autre serveur ou changez le port dans server.properties.")
         
         # Vérifier/télécharger Java si nécessaire
         java_path = config.get("java_path", "java")
@@ -506,12 +639,20 @@ class ServerManager:
             f"-Xms{config.get('ram_min', '1G')}",
             f"-Xmx{config.get('ram_max', '2G')}",
             "-Dfile.encoding=UTF-8",
+        ]
+        
+        # Insert JVM Flags (Pre-jar)
+        jvm_flags = config.get("java_flags", [])
+        if jvm_flags:
+            cmd.extend(jvm_flags)
+            
+        cmd.extend([
             "-jar",
             "server.jar",
             "nogui",
-        ]
+        ])
         
-        # Ajouter arguments supplémentaires
+        # Ajouter arguments supplémentaires (Post-jar / Program args)
         extra_args = config.get("extra_args", [])
         if extra_args:
             cmd.extend(extra_args)
@@ -758,20 +899,28 @@ class ServerManager:
             raise Exception(f"Erreur sauvegarde: {e}")
 
     def backup_server(self, name):
-        """Crée une sauvegarde du serveur"""
+        """Crée une sauvegarde compressée du serveur"""
         path = self._get_server_path(name)
         backup_dir = os.path.join(self.base_dir, "_backups")
         os.makedirs(backup_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_name = f"{name}_{timestamp}"
+        backup_name = f"{name}_{timestamp}.zip"
         backup_path = os.path.join(backup_dir, backup_name)
         
         try:
-            shutil.copytree(path, backup_path)
-            print(f"[INFO] Backup créé: {backup_name}")
+            print(f"[INFO] Création backup ZIP pour {name}...")
+            with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(path):
+                     for file in files:
+                         abs_path = os.path.join(root, file)
+                         rel_path = os.path.relpath(abs_path, start=path)
+                         zf.write(abs_path, arcname=rel_path)
+            print(f"[INFO] Backup ZIP créé: {backup_name}")
             return {"success": True, "name": backup_name}
         except Exception as e:
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
             raise Exception(f"Erreur backup: {e}")
 
     def list_backups(self, name=None):
@@ -785,16 +934,23 @@ class ServerManager:
             if name and not d.startswith(name + "_"):
                 continue
             full_path = os.path.join(backup_dir, d)
-            if os.path.isdir(full_path):
+            if os.path.isfile(full_path) or os.path.isdir(full_path):
                 stat = os.stat(full_path)
-                backups.append({
-                    "name": d,
-                    "date": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "size_mb": round(sum(
+                
+                size_mb = 0
+                if os.path.isdir(full_path):
+                    size_mb = sum(
                         os.path.getsize(os.path.join(dirpath, filename))
                         for dirpath, _, filenames in os.walk(full_path)
                         for filename in filenames
-                    ) / 1024 / 1024, 1)
+                    ) / 1024 / 1024
+                else:
+                    size_mb = stat.st_size / 1024 / 1024
+
+                backups.append({
+                    "name": d,
+                    "date": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "size_mb": round(size_mb, 1)
                 })
         
         return sorted(backups, key=lambda x: x["date"], reverse=True)
@@ -1021,6 +1177,7 @@ class ServerManager:
         
         return packs
     
+
     def add_datapack(self, server_name, file, world_name="world"):
         dp_path = os.path.join(self.servers_dir, server_name, world_name, "datapacks")
         os.makedirs(dp_path, exist_ok=True)
@@ -1101,8 +1258,113 @@ class ServerManager:
             return True, None
         except Exception as e:
             return False, str(e)
+
+    # ==========================
+    # MOD MANAGER (Modrinth)
+    # ==========================
     
-    # Port management
+    def search_mods(self, query, limit=10):
+        url = "https://api.modrinth.com/v2/search"
+        params = {
+            "query": query,
+            "limit": limit,
+            "facets": '[["project_type:mod"]]'
+        }
+        headers = {
+            "User-Agent": "MCPanel/2.0 (github.com/mcpanel-pro)"
+        }
+        
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            return data.get("hits", [])
+        except Exception as e:
+            print(f"[Mods] Search error: {e}")
+            return []
+
+    def install_mod(self, server_name, project_id, version_id=None):
+        server_path = self._get_server_path(server_name)
+        mods_dir = os.path.join(server_path, "mods")
+        os.makedirs(mods_dir, exist_ok=True)
+        
+        headers = {
+            "User-Agent": "MCPanel/2.0 (github.com/mcpanel-pro)"
+        }
+        
+        try:
+            # 1. Get version info
+            if version_id:
+                version_url = f"https://api.modrinth.com/v2/version/{version_id}"
+                r = requests.get(version_url, headers=headers)
+                r.raise_for_status()
+                version_data = r.json()
+            else:
+                # Get latest version compatible? (Simpler for now: require version_id or pick first)
+                # For this MVP, let's just get project versions
+                versions_url = f"https://api.modrinth.com/v2/project/{project_id}/version"
+                r = requests.get(versions_url, headers=headers)
+                r.raise_for_status()
+                all_versions = r.json()
+                if not all_versions:
+                    return False, "No versions found"
+                version_data = all_versions[0] # Pick latest
+            
+            # 2. Get download URL
+            file_info = version_data["files"][0]
+            download_url = file_info["url"]
+            filename = secure_filename(file_info["filename"])
+            
+            # 3. Download
+            dest = os.path.join(mods_dir, filename)
+            
+            print(f"[Mods] Downloading {filename} to {dest}...")
+            with requests.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                with open(dest, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        
+            return True, f"Mod {filename} installé!"
+            
+        except Exception as e:
+            return False, str(e)
+    # ==========================
+    # OPTIMIZATION
+    # ==========================
+    def optimize_server(self, name):
+        """Applique les drapeaux Aikar's Flags optimisés"""
+        config = self.get_server_config(name)
+        
+        # Aikar's Flags (Standard for G1GC)
+        # https://docs.papermc.io/paper/aikars-flags
+        aikar_flags = [
+            "-XX:+UseG1GC",
+            "-XX:+ParallelRefProcEnabled",
+            "-XX:MaxGCPauseMillis=200",
+            "-XX:+UnlockExperimentalVMOptions",
+            "-XX:+DisableExplicitGC",
+            "-XX:+AlwaysPreTouch",
+            "-XX:G1NewSizePercent=30",
+            "-XX:G1MaxNewSizePercent=40",
+            "-XX:G1HeapRegionSize=8M",
+            "-XX:G1ReservePercent=20",
+            "-XX:G1HeapWastePercent=5",
+            "-XX:G1MixedGCCountTarget=4",
+            "-XX:InitiatingHeapOccupancyPercent=15",
+            "-XX:G1MixedGCLiveThresholdPercent=90",
+            "-XX:G1RSetUpdatingPauseTimePercent=5",
+            "-XX:SurvivorRatio=32",
+            "-XX:+PerfDisableSharedMem",
+            "-XX:MaxTenuringThreshold=1",
+            "-Dusing.aikars.flags=https://mcflags.emc.gs",
+            "-Daikars.new.flags=true"
+        ]
+        
+        config["java_flags"] = aikar_flags
+        self.save_server_config(name, config)
+        return True, "Optimisations (Aikar's Flags) appliquées avec succès."
+
     def find_available_port(self, start=25565):
         import socket
         port = start

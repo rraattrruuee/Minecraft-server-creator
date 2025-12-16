@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>MCPanel - Connexion</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -18,13 +20,13 @@
             --success: #22c55e;
             --error: #ef4444;
         }
-        
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Inter', sans-serif;
             background: var(--bg-dark);
@@ -32,17 +34,17 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background-image: 
+            background-image:
                 radial-gradient(ellipse at top, rgba(99, 102, 241, 0.15), transparent 50%),
                 radial-gradient(ellipse at bottom, rgba(34, 197, 94, 0.1), transparent 50%);
         }
-        
+
         .login-container {
             width: 100%;
             max-width: 420px;
             padding: 20px;
         }
-        
+
         .login-card {
             background: var(--bg-card);
             backdrop-filter: blur(20px);
@@ -51,12 +53,12 @@
             padding: 40px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
-        
+
         .logo {
             text-align: center;
             margin-bottom: 32px;
         }
-        
+
         .logo i {
             font-size: 48px;
             background: linear-gradient(135deg, var(--primary), var(--success));
@@ -64,24 +66,24 @@
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-        
+
         .logo h1 {
             color: var(--text);
             font-size: 24px;
             font-weight: 700;
             margin-top: 16px;
         }
-        
+
         .logo p {
             color: var(--text-muted);
             font-size: 14px;
             margin-top: 4px;
         }
-        
+
         .form-group {
             margin-bottom: 20px;
         }
-        
+
         .form-group label {
             display: block;
             color: var(--text-muted);
@@ -89,11 +91,11 @@
             font-weight: 500;
             margin-bottom: 8px;
         }
-        
+
         .input-group {
             position: relative;
         }
-        
+
         .input-group i {
             position: absolute;
             left: 16px;
@@ -102,7 +104,7 @@
             color: var(--text-muted);
             font-size: 16px;
         }
-        
+
         .input-group input {
             width: 100%;
             padding: 14px 16px 14px 48px;
@@ -113,17 +115,17 @@
             font-size: 15px;
             transition: all 0.3s ease;
         }
-        
+
         .input-group input:focus {
             outline: none;
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
         }
-        
+
         .input-group input::placeholder {
             color: var(--text-muted);
         }
-        
+
         .btn-login {
             width: 100%;
             padding: 14px 24px;
@@ -140,21 +142,21 @@
             justify-content: center;
             gap: 8px;
         }
-        
+
         .btn-login:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
         }
-        
+
         .btn-login:active {
             transform: translateY(0);
         }
-        
+
         .btn-login.loading {
             opacity: 0.7;
             pointer-events: none;
         }
-        
+
         .alert {
             padding: 12px 16px;
             border-radius: 10px;
@@ -164,19 +166,19 @@
             align-items: center;
             gap: 10px;
         }
-        
+
         .alert-error {
             background: rgba(239, 68, 68, 0.15);
             border: 1px solid rgba(239, 68, 68, 0.3);
             color: #fca5a5;
         }
-        
+
         .alert-success {
             background: rgba(34, 197, 94, 0.15);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #86efac;
         }
-        
+
         .remember-forgot {
             display: flex;
             justify-content: space-between;
@@ -184,7 +186,7 @@
             margin-bottom: 24px;
             font-size: 14px;
         }
-        
+
         .remember-me {
             display: flex;
             align-items: center;
@@ -192,71 +194,84 @@
             color: var(--text-muted);
             cursor: pointer;
         }
-        
+
         .remember-me input[type="checkbox"] {
             width: 18px;
             height: 18px;
             accent-color: var(--primary);
             cursor: pointer;
         }
-        
+
         .footer-text {
             text-align: center;
             margin-top: 24px;
             color: var(--text-muted);
             font-size: 13px;
         }
-        
+
         .footer-text i {
             color: var(--success);
         }
-        
+
         .register-link {
             text-align: center;
             margin-top: 20px;
             padding-top: 20px;
             border-top: 1px solid var(--border);
         }
-        
+
         .register-link p {
             color: var(--text-muted);
             font-size: 14px;
         }
-        
+
         .register-link a {
             color: var(--primary);
             text-decoration: none;
             font-weight: 600;
             transition: color 0.2s;
         }
-        
+
         .register-link a:hover {
             color: var(--success);
         }
-        
+
         .register-card {
             display: none;
         }
-        
+
         .btn-register {
             background: linear-gradient(135deg, var(--success), #16a34a);
         }
-        
+
         .btn-register:hover {
             box-shadow: 0 10px 20px rgba(34, 197, 94, 0.3);
         }
-        
+
         @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            20%, 60% { transform: translateX(-5px); }
-            40%, 80% { transform: translateX(5px); }
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            20%,
+            60% {
+                transform: translateX(-5px);
+            }
+
+            40%,
+            80% {
+                transform: translateX(5px);
+            }
         }
-        
+
         .shake {
             animation: shake 0.5s ease-in-out;
         }
     </style>
 </head>
+
 <body>
     <div class="login-container">
         <div class="login-card">
@@ -265,48 +280,50 @@
                 <h1>Server Manager Pro</h1>
                 <p>Gestionnaire de serveurs Minecraft</p>
             </div>
-            
+
             <div id="alert-container"></div>
-            
+
             <form id="login-form">
                 <div class="form-group">
                     <label for="username">Nom d'utilisateur</label>
                     <div class="input-group">
                         <i class="fas fa-user"></i>
-                        <input type="text" id="username" name="username" placeholder="Entrez votre identifiant" required autocomplete="username">
+                        <input type="text" id="username" name="username" placeholder="Entrez votre identifiant" required
+                            autocomplete="username">
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="password">Mot de passe</label>
                     <div class="input-group">
                         <i class="fas fa-lock"></i>
-                        <input type="password" id="password" name="password" placeholder="Entrez votre mot de passe" required autocomplete="current-password">
+                        <input type="password" id="password" name="password" placeholder="Entrez votre mot de passe"
+                            required autocomplete="current-password">
                     </div>
                 </div>
-                
+
                 <div class="remember-forgot">
                     <label class="remember-me">
                         <input type="checkbox" id="remember" name="remember">
                         Se souvenir de moi
                     </label>
                 </div>
-                
+
                 <button type="submit" class="btn-login" id="btn-login">
                     <i class="fas fa-sign-in-alt"></i>
                     Se connecter
                 </button>
             </form>
-            
+
             <p class="footer-text">
                 <i class="fas fa-shield-alt"></i> Connexion sécurisée
             </p>
-            
+
             <div class="register-link">
                 <p>Pas encore de compte ? <a href="#" onclick="showRegisterForm()">Créer un compte</a></p>
             </div>
         </div>
-        
+
         <!-- Register Form -->
         <div class="login-card register-card" id="register-card" style="display: none;">
             <div class="logo">
@@ -314,51 +331,54 @@
                 <h1>Créer un compte</h1>
                 <p>Rejoignez le gestionnaire</p>
             </div>
-            
+
             <div id="register-alert-container"></div>
-            
+
             <form id="register-form">
                 <div class="form-group">
                     <label for="reg-username">Nom d'utilisateur</label>
                     <div class="input-group">
                         <i class="fas fa-user"></i>
-                        <input type="text" id="reg-username" name="username" placeholder="Choisissez un identifiant" required pattern="[a-zA-Z0-9_]+" minlength="3">
+                        <input type="text" id="reg-username" name="username" placeholder="Choisissez un identifiant"
+                            required pattern="[a-zA-Z0-9_]+" minlength="3">
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="reg-password">Mot de passe</label>
                     <div class="input-group">
                         <i class="fas fa-lock"></i>
-                        <input type="password" id="reg-password" name="password" placeholder="Choisissez un mot de passe" required minlength="4">
+                        <input type="password" id="reg-password" name="password"
+                            placeholder="Choisissez un mot de passe" required minlength="4">
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="reg-confirm">Confirmer le mot de passe</label>
                     <div class="input-group">
                         <i class="fas fa-lock"></i>
-                        <input type="password" id="reg-confirm" name="confirm" placeholder="Confirmez le mot de passe" required>
+                        <input type="password" id="reg-confirm" name="confirm" placeholder="Confirmez le mot de passe"
+                            required>
                     </div>
                 </div>
-                
+
                 <button type="submit" class="btn-login btn-register" id="btn-register">
                     <i class="fas fa-user-plus"></i>
                     Créer mon compte
                 </button>
             </form>
-            
+
             <div class="register-link">
                 <p>Déjà un compte ? <a href="#" onclick="showLoginForm()">Se connecter</a></p>
             </div>
         </div>
     </div>
-    
+
     <script>
         const form = document.getElementById('login-form');
         const alertContainer = document.getElementById('alert-container');
         const btnLogin = document.getElementById('btn-login');
-        
+
         function showAlert(message, type = 'error') {
             alertContainer.innerHTML = `
                 <div class="alert alert-${type}">
@@ -373,38 +393,47 @@
                 }, 500);
             }
         }
-        
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
-            
+
             if (!username || !password) {
                 showAlert('Veuillez remplir tous les champs');
                 return;
             }
-            
+
             btnLogin.classList.add('loading');
             btnLogin.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connexion...';
-            
+
             try {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
                 const response = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
                     },
                     body: JSON.stringify({ username, password })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     showAlert('Connexion réussie! Redirection...', 'success');
                     setTimeout(() => {
                         window.location.href = '/';
                     }, 500);
                 } else {
+                    // Auto-refresh on CSRF error (can happen if server restarted)
+                    if (data.message && data.message.includes('CSRF')) {
+                        showAlert('Session expirée, rechargement...', 'error');
+                        setTimeout(() => window.location.reload(), 1500);
+                        return;
+                    }
                     showAlert(data.message || 'Identifiants incorrects');
                     btnLogin.classList.remove('loading');
                     btnLogin.innerHTML = '<i class="fas fa-sign-in-alt"></i> Se connecter';
@@ -415,28 +444,28 @@
                 btnLogin.innerHTML = '<i class="fas fa-sign-in-alt"></i> Se connecter';
             }
         });
-        
+
         // Auto-focus sur le champ username
         document.getElementById('username').focus();
-        
+
         // Toggle entre login et register
         function showRegisterForm() {
             document.querySelector('.login-card:not(.register-card)').style.display = 'none';
             document.getElementById('register-card').style.display = 'block';
             document.getElementById('reg-username').focus();
         }
-        
+
         function showLoginForm() {
             document.getElementById('register-card').style.display = 'none';
             document.querySelector('.login-card:not(.register-card)').style.display = 'block';
             document.getElementById('username').focus();
         }
-        
+
         // Register form
         const registerForm = document.getElementById('register-form');
         const registerAlertContainer = document.getElementById('register-alert-container');
         const btnRegister = document.getElementById('btn-register');
-        
+
         function showRegisterAlert(message, type = 'error') {
             registerAlertContainer.innerHTML = `
                 <div class="alert alert-${type}">
@@ -451,43 +480,46 @@
                 }, 500);
             }
         }
-        
+
         registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const username = document.getElementById('reg-username').value.trim();
             const password = document.getElementById('reg-password').value;
             const confirm = document.getElementById('reg-confirm').value;
-            
+
             if (!username || !password || !confirm) {
                 showRegisterAlert('Veuillez remplir tous les champs');
                 return;
             }
-            
+
             if (password !== confirm) {
                 showRegisterAlert('Les mots de passe ne correspondent pas');
                 return;
             }
-            
+
             if (password.length < 4) {
                 showRegisterAlert('Le mot de passe doit contenir au moins 4 caractères');
                 return;
             }
-            
+
             btnRegister.classList.add('loading');
             btnRegister.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Création...';
-            
+
             try {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
                 const response = await fetch('/api/auth/register', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
                     },
                     body: JSON.stringify({ username, password })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     showRegisterAlert('Compte créé! Connexion...', 'success');
                     setTimeout(() => {
@@ -506,4 +538,5 @@
         });
     </script>
 </body>
+
 </html>

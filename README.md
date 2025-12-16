@@ -154,9 +154,117 @@ Principales routes:```
 
 ### Accéder à l'interface
 
-## Licence
-
 Ouvrir le navigateur : **http://127.0.0.1:5000**
+
+---
+
+## 🔧 Compiler et empaqueter le projet (exécuter & distribuer)
+
+Cette section explique plusieurs manières de lancer et de "compiler" (empaqueter) le projet selon vos besoins : exécution locale, création d'un exécutable unique avec PyInstaller, conteneurisation avec Docker, et déploiement en production avec Gunicorn + systemd.
+
+### Exécution locale (développement)
+
+1. Créez et activez un environnement virtuel (zsh) :
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+2. Lancer l'application en local :
+
+```bash
+python main.py
+# ou (si vous préférez gunicorn pour tester la configuration de production)
+gunicorn -w 4 -b 127.0.0.1:5000 main:app
+```
+
+> Astuce : si vous modifiez les fichiers statiques ou les templates, redémarrez le processus Python pour voir les changements.
+
+### Créer un exécutable unique (PyInstaller)
+
+PyInstaller permet de générer un exécutable autonome. Attention : il faut inclure les dossiers `app/templates` et `app/static` et les fichiers de traduction.
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --name mcpanel \
+  --add-data "app/templates:app/templates" \
+  --add-data "app/static:app/static" \
+  --add-data "locales:locales" \
+  main.py
+
+# Exécutable généré dans ./dist/mcpanel
+./dist/mcpanel
+```
+
+Remarques :
+- Selon la plateforme (Linux/Mac/Windows) les chemins `--add-data` sont sensibles et peuvent nécessiter un format différent (utiliser `;` sur Windows).
+- Vérifiez les logs et créez un script wrapper si nécessaire pour définir des variables d'environnement.
+
+### Conteneurisation avec Docker
+
+Exemple de Dockerfile minimal :
+
+```dockerfile
+FROM python:3.13-slim
+WORKDIR /app
+COPY . .
+RUN python -m pip install --upgrade pip && pip install -r requirements.txt
+EXPOSE 5000
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "main:app"]
+```
+
+Construire et lancer :
+
+```bash
+docker build -t mcpanel:latest .
+docker run -d -p 5000:5000 --name mcpanel mcpanel:latest
+```
+
+> Conseil : pour un déploiement en production, utilisez des volumes pour `servers/` afin de conserver les données et configurez un reverse proxy (nginx) devant Gunicorn.
+
+### Déploiement production (systemd + Gunicorn)
+
+1. Installez gunicorn dans votre environnement de production : `pip install gunicorn`.
+2. Exemple de commande de lancement :
+
+```bash
+gunicorn -w 4 -b 127.0.0.1:5000 main:app
+```
+
+3. Exemple simple d'un service systemd (`/etc/systemd/system/mcpanel.service`) :
+
+```ini
+[Unit]
+Description=MCPanel Service
+After=network.target
+
+[Service]
+User=mcpanel
+Group=mcpanel
+WorkingDirectory=/path/to/Minecraft-server-creator
+Environment="PATH=/path/to/.venv/bin"
+ExecStart=/path/to/.venv/bin/gunicorn -w 4 -b 127.0.0.1:5000 main:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Reload systemd et lancer :
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mcpanel.service
+```
+
+---
+
+Si vous voulez que j'ajoute un `Dockerfile` ou un exemple `systemd` complet dans le repo, dites-le et je l'ajoute.
+
+## Licence
 
 MIT
 
