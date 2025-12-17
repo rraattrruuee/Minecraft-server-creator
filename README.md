@@ -192,8 +192,10 @@ pip install pyinstaller
 pyinstaller --onefile --name mcpanel \
   --add-data "app/templates:app/templates" \
   --add-data "app/static:app/static" \
+  --add-data "locales:locales" \
   main.py
-
+```
+```bash
 # Exécutable généré dans ./dist/mcpanel
 ./dist/mcpanel
 ```
