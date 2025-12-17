@@ -2,7 +2,36 @@
 
 
 
-Panel de gestion de serveurs Minecraft PaperMC. Permet de créer, configurer et administrer plusieurs serveurs depuis une interface web.Manager web professionnel pour créer et gérer plusieurs serveurs Minecraft PaperMC avec une interface moderne.
+Panel de gestion de serveurs Minecraft PaperMC. Permet de créer, configurer et administrer plusieurs serveurs depuis une interface web. Manager web professionnel pour créer et gérer plusieurs serveurs Minecraft PaperMC avec une interface moderne.
+
+> ⚠️ **Accès par défaut** : le premier compte créé par l'application est **username:** `admin` et **password:** `admin`. Changez ce mot de passe immédiatement après la première connexion.
+
+## Installation rapide
+
+Pour démarrer rapidement en local :
+
+```bash
+# Créer et activer un environnement virtuel (zsh)
+python -m venv .venv
+source .venv/bin/activate
+
+# Installer les dépendances
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# Lancer l'application
+python main.py
+```
+
+L'application sera accessible sur http://127.0.0.1:5000
+
+---
+
+## Sécurité des secrets
+
+- **Clé de session et sel de hash** : le projet génère automatiquement des fichiers secrets locaux au premier lancement (par ex. `.secret_key` pour Flask et `data/.hash_salt` pour le sel de hachage legacy). Ces fichiers sont **ignorés** par git (`.gitignore`) et **ne sont pas** inclus dans le dépôt.
+
+Cela garantit que même si le dépôt est public, les secrets spécifiques à votre instance ne seront pas exposés.
 
 
 

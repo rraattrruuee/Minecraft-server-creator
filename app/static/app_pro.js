@@ -86,6 +86,17 @@ function loadUserPreferences() {
     // Charger les commandes favorites
     loadFavoriteCommands();
     renderFavoriteCommands();
+    
+        try {
+            const oldPwd = document.getElementById('old-password');
+            const newPwd = document.getElementById('new-password');
+            const confirmPwd = document.getElementById('confirm-password');
+            const emailInp = document.getElementById('account-email');
+            if (oldPwd) oldPwd.value = '';
+            if (newPwd) newPwd.value = '';
+            if (confirmPwd) confirmPwd.value = '';
+            if (emailInp) emailInp.value = currentUser?.email || '';
+        } catch (e) { /* silent */ }
 }
 
 function saveUserPreferences() {
@@ -1407,6 +1418,10 @@ function saveVisualSettings() {
     localStorage.setItem('mcpanel_visual', JSON.stringify(visualSettings));
 
     applyVisualSettings();
+// ================================
+// ACCOUNT / PASSWORD
+// ================================
+
 
 }
 
@@ -6237,13 +6252,68 @@ function saveSettings() {
     };
 
     localStorage.setItem('appSettings', JSON.stringify(settings));
+}
 
+// ================================
+// ACCOUNT / PASSWORD 
+// ================================
+
+function _validatePasswordStrength(pwd) {
+    if (!pwd || pwd.length < 8) return 'Le mot de passe doit contenir au moins 8 caractères.';
+    if (!/[A-Z]/.test(pwd)) return 'Le mot de passe doit contenir une majuscule.';
+    if (!/\d/.test(pwd)) return 'Le mot de passe doit contenir un chiffre.';
+    return null;
+}
+
+async function changePassword() {
+    const oldPassword = (document.getElementById('old-password') || {}).value || '';
+    const newPassword = (document.getElementById('new-password') || {}).value || '';
+    const confirm = (document.getElementById('confirm-password') || {}).value || '';
+
+    if (!oldPassword || !newPassword || !confirm) {
+        showToast('error', 'Veuillez remplir tous les champs');
+        return;
+    }
+
+    if (newPassword !== confirm) {
+        showToast('error', 'Les mots de passe ne correspondent pas');
+        return;
+    }
+
+    const strengthErr = _validatePasswordStrength(newPassword);
+    if (strengthErr) {
+        showToast('error', strengthErr);
+        return;
+    }
+
+    try {
+        await ensureCsrfToken();
+        const res = await apiFetch('/api/auth/password', {
+            method: 'POST',
+            body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', data.message || 'Mot de passe modifié');
+            const o = document.getElementById('old-password'); if (o) o.value = '';
+            const n = document.getElementById('new-password'); if (n) n.value = '';
+            const c = document.getElementById('confirm-password'); if (c) c.value = '';
+            try {
+                if (currentUser && currentUser.username === 'admin') {
+                    localStorage.setItem('admin_default_changed', '1');
+                }
+            } catch (e) {}
+        } else {
+            showToast('error', data.message || 'Erreur lors du changement de mot de passe');
+        }
+    } catch (e) {
+        console.error('Erreur changePassword:', e);
+        showToast('error', 'Erreur API');
+    }
 }
 
 
-
 async function loadUsers() {
-
     try {
 
         const response = await apiFetch('/api/auth/users');

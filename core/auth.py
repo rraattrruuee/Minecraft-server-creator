@@ -8,16 +8,18 @@ import hashlib
 from flask import redirect, request, session, url_for, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
-LEGACY_SALT = "x7Kp2mNqR9"
+LEGACY_SALT_FILE = ".hash_salt"
 
 class AuthManager:
     def __init__(self, data_dir="data"):
         self.data_dir = data_dir
         self.users_file = os.path.join(data_dir, "users.json")
         self.audit_file = os.path.join(data_dir, "audit.log")
+        self.legacy_salt = self._load_or_create_legacy_salt()
         
         # Rate Limiting
-        self.login_attempts = {} # {ip: [timestamps]}
+        self.login_attempts = {} 
+        self.failed_logins = {} 
         
         os.makedirs(data_dir, exist_ok=True)
         self._init_default_users()
@@ -63,7 +65,52 @@ class AuthManager:
     
     def _check_legacy_hash(self, password, stored_hash):
         """Check if password matches the old SHA256 method"""
-        return hashlib.sha256(f"{LEGACY_SALT}{password}".encode()).hexdigest() == stored_hash
+        return hashlib.sha256(f"{self.legacy_salt}{password}".encode()).hexdigest() == stored_hash
+
+    def _load_or_create_legacy_salt(self):
+        """Load an installation-specific legacy salt from disk or create it.
+
+        The file is stored inside the data directory and is ignored by git via .gitignore.
+        """
+        path = os.path.join(self.data_dir, LEGACY_SALT_FILE)
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            salt = secrets.token_hex(32)
+            tmp = f"{path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(salt)
+            os.replace(tmp, path)
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
+            return salt
+        except Exception:
+            return secrets.token_hex(32)
+
+    def _is_user_locked(self, username):
+        """Return True if username has exceeded allowed failed attempts in window"""
+        now = datetime.now().timestamp()
+        window = 15 * 60
+        max_attempts = 5
+        attempts = self.failed_logins.get(username, [])
+        attempts = [t for t in attempts if now - t < window]
+        self.failed_logins[username] = attempts
+        if len(attempts) >= max_attempts:
+            return True
+        return False
+
+    def _record_failed_login(self, username):
+        now = datetime.now().timestamp()
+        if username not in self.failed_logins:
+            self.failed_logins[username] = []
+        self.failed_logins[username].append(now)
+
+    def _clear_failed_logins(self, username):
+        if username in self.failed_logins:
+            del self.failed_logins[username]
 
     def _load_users(self):
         try:
@@ -84,10 +131,15 @@ class AuthManager:
             self._log_audit(username, "LOGIN_BLOCKED", f"Rate limit exceeded IP: {client_ip}")
             return None, "Trop de tentatives. Réessayez dans 15 minutes."
 
+        if self._is_user_locked(username):
+            self._log_audit(username, "LOGIN_BLOCKED", "Account locked due to repeated failures")
+            return None, "Compte verrouillé temporairement en raison de trop nombreuses tentatives."
+
         users = self._load_users()
         if username not in users:
             # Fake hash check to prevent timing attacks
             check_password_hash('pbkdf2:sha256:1000$dummy$dummy', 'dummy')
+            self._record_failed_login(username)
             return None, "Identifiants invalides."
         
         user = users[username]
@@ -96,6 +148,7 @@ class AuthManager:
         if stored_hash.startswith("scrypt:") or stored_hash.startswith("pbkdf2:"):
             if not check_password_hash(stored_hash, password):
                 self._log_audit(username, "LOGIN_FAILED", "bad password")
+                self._record_failed_login(username)
                 return None, "Identifiants invalides."
         else:
             if self._check_legacy_hash(password, stored_hash):
@@ -104,11 +157,12 @@ class AuthManager:
                 self._save_users(users)
             else:
                 self._log_audit(username, "LOGIN_FAILED", "bad password (legacy)")
+                self._record_failed_login(username)
                 return None, "Identifiants invalides."
         
         users[username]["last_login"] = datetime.now().isoformat()
         self._save_users(users)
-        
+        self._clear_failed_logins(username)
         self._log_audit(username, "LOGIN_SUCCESS", "")
         return {
             "username": username,
@@ -200,6 +254,8 @@ class AuthManager:
                  return False, "Ancien mot de passe incorrect"
 
         users[username]["password_hash"] = generate_password_hash(new_password)
+        if username == "admin":
+            users[username]["default_password_changed"] = True
         self._save_users(users)
         self._log_audit(username, "PASSWORD_CHANGED", "")
         return True, "Mot de passe modifié"

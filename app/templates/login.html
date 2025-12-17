@@ -269,6 +269,19 @@
         .shake {
             animation: shake 0.5s ease-in-out;
         }
+
+        .login-actions .btn-show-pass {
+            background: var(--bg);
+            border: 1px solid rgba(0,0,0,0.08);
+            color: var(--text);
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-actions .btn-show-pass:hover { background: rgba(0,0,0,0.03); }
     </style>
 </head>
 
@@ -309,11 +322,22 @@
                     </label>
                 </div>
 
-                <button type="submit" class="btn-login" id="btn-login">
-                    <i class="fas fa-sign-in-alt"></i>
-                    Se connecter
-                </button>
+                <div class="login-actions" style="display:flex;gap:8px;align-items:center;">
+                    <button type="submit" class="btn-login" id="btn-login">
+                        <i class="fas fa-sign-in-alt"></i>
+                        Se connecter
+                    </button>
+                    <button type="button" class="btn-show-pass" id="btn-show-pass" title="Voir le mot de passe">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
             </form>
+
+            <div id="admin-warning" style="display:none;margin-top:12px;">
+                <div class="alert alert-error" style="background:#ffdddd;color:#900;font-weight:700;padding:12px;border-radius:6px;text-align:center;font-size:1.05rem;">
+                    Attention : vous utilisez le compte administrateur par défaut (`admin` / `admin`). Changez ce mot de passe immédiatement après la connexion !
+                </div>
+            </div>
 
             <p class="footer-text">
                 <i class="fas fa-shield-alt"></i> Connexion sécurisée
@@ -378,6 +402,78 @@
         const form = document.getElementById('login-form');
         const alertContainer = document.getElementById('alert-container');
         const btnLogin = document.getElementById('btn-login');
+        const btnShowPass = document.getElementById('btn-show-pass');
+        const adminWarning = document.getElementById('admin-warning');
+        let adminDefaultChanged = false;
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+
+            (async function autoFillAdmin() {
+                try {
+                    if (!usernameInput.value && !passwordInput.value) {
+                        if (localStorage.getItem('admin_default_changed') === '1') {
+                            adminDefaultChanged = true;
+                            try {
+                                if (passwordInput) {
+                                    passwordInput.value = '';
+                                    passwordInput.setAttribute('autocomplete', 'new-password');
+                                            [0, 200, 400, 600, 800].forEach(delay => setTimeout(() => { try { passwordInput.value = ''; } catch (e) {} }, delay));
+                                }
+                            } catch (e) {}
+                            updateAdminWarning();
+                            return;
+                        }
+
+                        try {
+                            const res = await fetch('/api/auth/admin/default_changed');
+                            if (res.ok) {
+                                const j = await res.json();
+                                if (j && j.default_changed) {
+                                    localStorage.setItem('admin_default_changed', '1');
+                                    adminDefaultChanged = true;
+                                    try {
+                                        if (passwordInput) {
+                                            passwordInput.value = '';
+                                            passwordInput.setAttribute('autocomplete', 'new-password');
+                                                [0, 200, 400, 600, 800].forEach(delay => setTimeout(() => { try { passwordInput.value = ''; } catch (e) {} }, delay));
+                                        }
+                                    } catch (e) {}
+                                    updateAdminWarning();
+                                    return;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Could not check admin default state:', e);
+                        }
+
+                        usernameInput.value = 'admin';
+                        passwordInput.value = 'admin';
+                    }
+                } catch (e) { /* silent */ }
+                updateAdminWarning();
+            })();
+
+        function updateAdminWarning() {
+
+
+            if (usernameInput.value === 'admin' && passwordInput.value === 'admin') {
+                adminWarning.style.display = 'block';
+                adminWarning.innerHTML = `<div class="alert alert-error" style="background:#ffdddd;color:#900;font-weight:700;padding:12px;border-radius:6px;text-align:center;font-size:1.05rem;">Attention : vous utilisez le compte administrateur par défaut (` + "admin` / `admin`" + `). Changez ce mot de passe immédiatement après la connexion !</div>`;
+            } else {
+                adminWarning.style.display = 'none';
+                adminWarning.innerHTML = '';
+            }
+        }
+
+        btnShowPass?.addEventListener('click', (e) => {
+            e.preventDefault();
+            const isPwd = passwordInput.getAttribute('type') === 'password';
+            passwordInput.setAttribute('type', isPwd ? 'text' : 'password');
+            btnShowPass.innerHTML = isPwd ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+        });
+
+        usernameInput.addEventListener('input', updateAdminWarning);
+        passwordInput.addEventListener('input', updateAdminWarning);
 
         function showAlert(message, type = 'error') {
             alertContainer.innerHTML = `

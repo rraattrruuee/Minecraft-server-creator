@@ -9,6 +9,7 @@
 # Base de données utilisateurs (contient mots de passe hashés)
 data/users.json
 data/auth.json
+data/.hash_salt
 
 # Logs pouvant contenir données sensibles
 *.log

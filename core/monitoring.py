@@ -27,6 +27,10 @@ class MetricsCollector:
         if self._running:
             return
         self._running = True
+        try:
+            self._collect_system()
+        except Exception:
+            pass
         self._thread = threading.Thread(target=self._collect_loop, daemon=True)
         self._thread.start()
         print("[METRICS] Collecteur de métriques démarré")
@@ -49,7 +53,7 @@ class MetricsCollector:
     def _collect_system(self):
         """Collecte les métriques système"""
         with self._lock:
-            cpu = psutil.cpu_percent(interval=None)
+            cpu = psutil.cpu_percent(interval=0.1)
             mem = psutil.virtual_memory()
             disk = psutil.disk_usage("/")
             
@@ -82,14 +86,45 @@ class MetricsCollector:
             return data[-limit:] if len(data) > limit else data
     
     def get_current_system(self):
-        """Récupère les métriques système actuelles"""
+        """Récupère les métriques système actuelles.
+
+        Pour garantir l'exactitude et la cohérence avec l'historique, on retourne
+        la dernière entrée collectée par la boucle `_collect_system` si elle est
+        disponible. Cela évite les mesures ponctuelles qui peuvent diverger
+        (ex: différents intervalles d'échantillonnage ou blocage par `psutil`).
+        """
+        with self._lock:
+            if len(self.system_metrics) > 0:
+                last = self.system_metrics[-1]
+                return {
+                    "timestamp": last.get("timestamp", datetime.now().isoformat()),
+                    "cpu": {
+                        "percent": last.get("cpu", 0),
+                        "cores": psutil.cpu_count(),
+                        "cores_physical": psutil.cpu_count(logical=False)
+                    },
+                    "memory": {
+                        "used_gb": last.get("ram_used", 0),
+                        "total_gb": last.get("ram_total", 0),
+                        "available_gb": round((psutil.virtual_memory().available) / (1024**3), 2),
+                        "percent": last.get("ram_percent", 0)
+                    },
+                    "disk": {
+                        "used_gb": last.get("disk_used", 0),
+                        "total_gb": last.get("disk_total", 0),
+                        "free_gb": round((psutil.disk_usage('/').free) / (1024**3), 2),
+                        "percent": last.get("disk_percent", 0)
+                    },
+                    "process": {
+                        "memory_mb": round(psutil.Process().memory_info().rss / (1024**2), 2),
+                        "cpu_percent": psutil.Process().cpu_percent()
+                    }
+                }
+
         cpu = psutil.cpu_percent(interval=0.1)
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        
-        # Infos processus Python
         process = psutil.Process()
-        
         return {
             "timestamp": datetime.now().isoformat(),
             "cpu": {
@@ -143,7 +178,7 @@ class ServerMonitor:
             "cpu_percent": 90,
             "ram_percent": 90,
             "disk_percent": 95,
-            "tps_min": 15  # TPS < 15 = lag
+            "tps_min": 15 
         }
     
     def set_auto_restart(self, server_name, enabled=True, max_restarts=3):

@@ -53,13 +53,16 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max
 # Amélioration Sécurité 18: Faire expirer les sessions inactives
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
+if os.getenv('MCPANEL_FORCE_SECURE', '0') == '1' or os.getenv('FLASK_ENV') == 'production':
+    app.config['SESSION_COOKIE_SECURE'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'
+
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 
 # ===================== SECURITY MIDDLEWARE =====================
 @app.before_request
 def csrf_protect():
-    # Amélioration Sécurité 8: Protection CSRF pour toutes les méthodes modifiantes
     if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
         token = session.get("_csrf_token")
         header_token = request.headers.get("X-CSRF-Token")
@@ -148,7 +151,7 @@ def regenerate_csrf_after_login(response):
 def add_security_headers(response):
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https:;"
+    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' data: https:;"
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     # Amélioration 1: Headers de sécurité supplémentaires
     response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -157,6 +160,8 @@ def add_security_headers(response):
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
+    if app.config.get('SESSION_COOKIE_SECURE'):
+        response.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
     return response
 
 # Amélioration 2: Compression GZIP pour les réponses
@@ -462,7 +467,11 @@ def api_login():
             
     user, error = auth_mgr.authenticate(username, password, client_ip=ip)
     if user:
+        session.clear()
+        session.permanent = True
         session["user"] = user
+        session["_csrf_token"] = secrets.token_hex(32)
+        auth_mgr._log_audit(username, "LOGIN_SUCCESS_SESSION", ip)
         return jsonify({"status": "success", "user": user})
     return jsonify({"status": "error", "message": error or "Identifiants incorrects"}), 401
 
@@ -494,6 +503,14 @@ def api_current_user():
     if "user" in session:
         return jsonify({"status": "success", "user": session["user"]})
     return jsonify({"status": "error", "message": "Non connecté"}), 401
+
+
+@app.route("/api/auth/admin/default_changed")
+def api_admin_default_changed():
+    """Indique si le mot de passe par défaut de l'utilisateur admin a été changé"""
+    users = auth_mgr._load_users()
+    changed = users.get('admin', {}).get('default_password_changed', False)
+    return jsonify({"status": "success", "default_changed": bool(changed)})
 
 
 @app.route("/api/auth/users")
