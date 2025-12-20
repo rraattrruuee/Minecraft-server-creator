@@ -1,6 +1,5 @@
 import socket
 import struct
-import select
 
 class RconClient:
     def __init__(self, host="localhost", port=25575, password=""):
@@ -86,7 +85,11 @@ class RconClient:
 
 # Helper for quick commands
 def rcon_command(host, port, password, command):
+    # Deprecated helper: use `RconClient` directly (provides better control over connection)
     client = RconClient(host, port, password)
-    result, error = client.command(command)
-    client.close()
-    return result, error
+    try:
+        result, error = client.command(command)
+        return result, error
+    finally:
+        client.close()
+

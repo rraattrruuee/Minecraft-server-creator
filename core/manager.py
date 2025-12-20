@@ -74,8 +74,7 @@ class ServerManager:
         self.servers_dir = self.base_dir  # Alias pour compatibilité
         self.procs = {}
         self.log_files = {}  # Pour gérer les fichiers de log proprement
-        self._versions_cache = None
-        self._versions_cache_time = 0
+        # versions cache removed (unused)
         self.java_dir = os.path.join(self.base_dir, "_java")  # Dossier pour les JRE téléchargés
 
     def _get_required_java_version(self, mc_version):
@@ -811,57 +810,56 @@ class ServerManager:
         try:
             path = self._get_server_path(name)
             log_path = os.path.join(path, "latest.log")
-            
+
             if not os.path.exists(log_path):
                 return []
-            
+
+            # Efficiently read the last `lines` lines
+            from collections import deque
+            tail = deque(maxlen=lines)
             with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-                all_lines = f.readlines()
-            
-            result = []
-            for line in all_lines:
-                # Filter by type
-                if filter_type:
-                    if filter_type == "error" and "/ERROR]" not in line and "/FATAL]" not in line:
-                        continue
-                    elif filter_type == "warn" and "/WARN" not in line:
-                        continue
-                    elif filter_type == "info" and "/INFO]" not in line:
-                        continue
-                    elif filter_type == "chat" and not ("<" in line and ">" in line):
-                        continue
-                    elif filter_type == "join" and "joined the game" not in line and "left the game" not in line:
-                        continue
-                
-                # Search filter
-                if search and search.lower() not in line.lower():
-                    continue
-                
-                result.append(line)
-            
-            return result[-lines:]
+                for ln in f:
+                    tail.append(ln.rstrip("\n"))
+
+            result = list(tail)
+
+            # Apply simple filters
+            if filter_type:
+                ft = filter_type.lower()
+                if ft in ("error", "err"):
+                    result = [l for l in result if "error" in l.lower() or "exception" in l.lower()]
+                elif ft in ("warn", "warning"):
+                    result = [l for l in result if "warn" in l.lower()]
+                elif ft in ("info",):
+                    result = [l for l in result if "info" in l.lower()]
+
+            if search:
+                q = search.lower()
+                result = [l for l in result if q in l.lower()]
+
+            return result
         except Exception as e:
             print(f"[WARN] Erreur lecture logs: {e}")
             return []
-    
+
     def get_logs_files(self, name):
-        """List all log files"""
+        """Liste les fichiers de logs (latest + archived)"""
         path = self._get_server_path(name)
         logs_dir = os.path.join(path, "logs")
         files = []
-        
+
         # Latest.log
         latest = os.path.join(path, "latest.log")
         if os.path.exists(latest):
             files.append({"name": "latest.log", "path": "latest.log", "size": os.path.getsize(latest)})
-        
+
         # Archived logs
         if os.path.exists(logs_dir):
-            for f in os.listdir(logs_dir):
-                fp = os.path.join(logs_dir, f)
+            for fname in os.listdir(logs_dir):
+                fp = os.path.join(logs_dir, fname)
                 if os.path.isfile(fp):
-                    files.append({"name": f, "path": f"logs/{f}", "size": os.path.getsize(fp)})
-        
+                    files.append({"name": fname, "path": f"logs/{fname}", "size": os.path.getsize(fp)})
+
         return sorted(files, key=lambda x: x["name"], reverse=True)
 
     def get_properties(self, name):

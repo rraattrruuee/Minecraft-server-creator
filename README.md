@@ -33,6 +33,94 @@ L'application sera accessible sur http://127.0.0.1:5000
 
 Cela garantit que même si le dépôt est public, les secrets spécifiques à votre instance ne seront pas exposés.
 
+### Migration de `users.json` vers la base de données
+
+Si vous avez des utilisateurs existants stockés dans `data/users.json`, utilisez le script de migration pour les importer dans la nouvelle base SQLite :
+
+```bash
+python scripts/migrate_users.py
+```
+
+Le script crée une sauvegarde `data/users.json.bak` après l'import.
+
+---
+
+## 🔁 Guide de migration & mise à jour (auth -> DB) ✅
+
+Ce projet utilise maintenant une base SQLite (`data/mcpanel.db`) et SQLAlchemy pour gérer les comptes utilisateurs, la 2FA et les journaux d'audit. Voici un guide pas-à-pas pour effectuer la migration en toute sécurité.
+
+### 1) Pré-requis
+- Assurez-vous d'avoir un environnement virtuel activé et les dépendances installées :
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2) Initialiser la base et appliquer les migrations Alembic
+- Initialisez la DB et appliquez les migrations (créées automatiquement dans `alembic/`):
+
+```bash
+# Crée les fichiers de DB si nécessaire et applique les migrations
+alembic upgrade head
+```
+
+> Si vous n'avez pas encore initialisé Alembic sur une instance fraîche, `alembic init alembic` est déjà géré dans le dépôt. Nous utilisons l'engine SQLAlchemy du projet pour l'autogénération et l'appliquer en direct.
+
+### 3) Importer `data/users.json`
+
+```bash
+python scripts/migrate_users.py
+```
+
+- Le script importera les comptes dans la table `users` et créera une sauvegarde `data/users.json.bak`.
+- Après l'import, **vérifiez** que les comptes sont présents : 
+
+```bash
+python - <<'PY'
+from core.db import get_session
+s = get_session()
+print(s.execute('select username, password_hash from users').fetchall())
+s.close()
+PY
+```
+
+### 4) Vérifications & post-migration
+- Les anciens formats de hash (scrypt / pbkdf2 / legacy) sont marqués avec `needs_password_reset = 1` par la migration; à la première connexion réussie l'utilisateur est automatiquement ré-haché en Argon2 et le flag est effacé.
+- Pour forcer une réinitialisation côté utilisateur, utilisez le flux de réinitialisation de mot de passe : `/api/auth/password/request-reset` puis `/api/auth/password/reset`.
+
+### 5) Tests & validation
+- Les tests unitaires et d'intégration couvrent la migration et les nouveaux flux d'auth. Pour exécuter la suite concernée :
+
+```bash
+source .venv/bin/activate
+pytest -q tests/test_auth_migration.py tests/test_account_lockout.py tests/test_2fa_and_password_reset.py tests/test_api_auth_flows.py
+```
+
+### 6) Sécurité & bonnes pratiques
+- Les fichiers secrets locaux (`.secret_key`, `data/.hash_salt`) sont générés automatiquement et **ignorés** par git. Ne les commettez jamais.
+- En production, **ne retournez jamais** les tokens de réinitialisation dans la réponse HTTP : envoyez-les par e-mail via un canal sécurisé (SMTP ou un service d'email). Le dépôt contient l'implémentation de test qui renvoie le token pour faciliter les tests locaux.
+- Pensez à configurer la variable d'environnement `MCPANEL_FORCE_SECURE=1` et à activer HTTPS pour forcer des cookies `Secure`/`Strict`.
+
+### Remplacement de `data/users.json` dans le dépôt
+
+- **Important** : Pour éviter de commettre des données sensibles, `data/users.json` **ne doit pas** être gardé dans le dépôt. Le fichier d'exemple `data/users.example.json` contient la structure attendue sans données sensibles et sert d'exemple pour l'import.
+- Si vous avez encore `data/users.json` dans votre working tree, utilisez le script `scripts/remove_users_json.py` pour l'archiver et le supprimer en toute sécurité :
+
+```bash
+python scripts/remove_users_json.py
+```
+
+Le script créera un fichier `data/users.json.removed.<timestamp>` et supprimera `data/users.json`.
+
+### 7) Rollback / sauvegarde
+- Le script de migration sauvegarde `data/users.json` en `.bak` avant de modifier (voir `data/users.json.bak`). Conservez la sauvegarde jusqu'à validation complète.
+- Pour revenir en arrière au niveau de schéma : utilisez Alembic (`alembic downgrade <rev>`). Faites une sauvegarde de `data/mcpanel.db` avant toute opération destructrice.
+
+---
+
+Si vous souhaitez, je peux ajouter un exemple d'envoi d'e-mails (SMTP) pour le flow de reset, ou un script pour lister/débloquer les comptes (admin UI) — dites-moi quelle option vous préférez. ✉️🔧
+
 
 
 ## Fonctionnalités![Python](https://img.shields.io/badge/Python-3.11+-blue)

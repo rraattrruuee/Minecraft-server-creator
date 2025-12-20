@@ -9,6 +9,7 @@ from functools import wraps
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response, send_file
 
 from core.auth import AuthManager, admin_required, login_required
+from core.db import init_db
 from core.config_editor import ConfigEditor
 from core.file_manager import FileManager
 from core.i18n import i18n
@@ -59,6 +60,12 @@ if os.getenv('MCPANEL_FORCE_SECURE', '0') == '1' or os.getenv('FLASK_ENV') == 'p
 
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
+
+# Ensure DB is initialized early
+try:
+    init_db()
+except Exception:
+    pass
 
 # ===================== SECURITY MIDDLEWARE =====================
 @app.before_request
@@ -465,7 +472,8 @@ def api_login():
     else:
         ip = request.remote_addr
             
-    user, error = auth_mgr.authenticate(username, password, client_ip=ip)
+    otp = data.get('otp')
+    user, error = auth_mgr.authenticate(username, password, client_ip=ip, otp=otp)
     if user:
         session.clear()
         session.permanent = True
@@ -503,6 +511,70 @@ def api_current_user():
     if "user" in session:
         return jsonify({"status": "success", "user": session["user"]})
     return jsonify({"status": "error", "message": "Non connecté"}), 401
+
+
+@app.route('/api/auth/2fa/start', methods=['POST'])
+@login_required
+def api_2fa_start():
+    username = session['user']['username']
+    secret, uri = auth_mgr.generate_2fa_secret(username)
+    # Return secret/uri so client can display QR code for provisioning
+    return jsonify({'status': 'success', 'secret': secret, 'uri': uri})
+
+
+@app.route('/api/auth/2fa/confirm', methods=['POST'])
+@login_required
+def api_2fa_confirm():
+    data = request.json or {}
+    secret = data.get('secret')
+    code = data.get('code')
+    username = session['user']['username']
+    ok, msg = auth_mgr.enable_2fa(username, secret, code)
+    if ok:
+        # update session user
+        session['user']['role'] = session['user'].get('role')
+        return jsonify({'status': 'success', 'message': msg})
+    return jsonify({'status': 'error', 'message': msg}), 400
+
+
+@app.route('/api/auth/2fa/disable', methods=['POST'])
+@login_required
+def api_2fa_disable():
+    data = request.json or {}
+    password = data.get('password')
+    code = data.get('code')
+    username = session['user']['username']
+    ok, msg = auth_mgr.disable_2fa(username, password, code)
+    if ok:
+        return jsonify({'status': 'success', 'message': msg})
+    return jsonify({'status': 'error', 'message': msg}), 400
+
+
+@app.route('/api/auth/password/request-reset', methods=['POST'])
+def api_request_password_reset():
+    data = request.json or {}
+    identifier = data.get('username') or data.get('email')
+    if not identifier:
+        return jsonify({'status': 'error', 'message': 'username or email required'}), 400
+    ok, token_or_msg = auth_mgr.request_password_reset(identifier)
+    if ok:
+        # in real setup we would email token; for now return token when running locally/tests
+        return jsonify({'status': 'success', 'token': token_or_msg})
+    return jsonify({'status': 'error', 'message': token_or_msg}), 400
+
+
+@app.route('/api/auth/password/reset', methods=['POST'])
+def api_password_reset():
+    data = request.json or {}
+    username = data.get('username')
+    token = data.get('token')
+    new_password = data.get('new_password')
+    if not all([username, token, new_password]):
+        return jsonify({'status': 'error', 'message': 'missing fields'}), 400
+    ok, msg = auth_mgr.reset_password(username, token, new_password)
+    if ok:
+        return jsonify({'status': 'success', 'message': msg})
+    return jsonify({'status': 'error', 'message': msg}), 400
 
 
 @app.route("/api/auth/admin/default_changed")

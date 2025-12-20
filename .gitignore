@@ -10,11 +10,16 @@
 data/users.json
 data/auth.json
 data/.hash_salt
+data/mcpanel.db
+data/mcpanel.db-journal
+data/mcpanel.db-shm
+data/mcpanel.db-wal
 
 # Logs pouvant contenir données sensibles
 *.log
 logs/
 data/logs/
+data/audit.log
 
 # Cache API (peut contenir données sensibles)
 data/api_cache/
@@ -29,12 +34,30 @@ config.json
 .env.local
 *.env
 .pipk_venv/
+.venv/
+venv/
 
 # Clés SSH/API
 *.pem
 *.key
 id_rsa*
 *.pub
+
+# ====================================
+# DÉVELOPPEMENT & TESTS
+# ====================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.vscode/
+.idea/
+*.bak
+*.tmp
+*.swp
 
 # ====================================
 # SERVEURS MINECRAFT (GROS FICHIERS)
