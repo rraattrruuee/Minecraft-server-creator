@@ -4,6 +4,70 @@
 // GLOBAL STATE
 // ================================
 let currentServer = null;
+
+// Ensure showSection is callable from inline onclicks even if the full script
+// hasn't finished initializing or if an earlier runtime error prevented
+// defining the real implementation. This stub will forward to the real
+// implementation once available.
+if (!globalThis.showSection) {
+    globalThis.__queuedShowSection = globalThis.__queuedShowSection || [];
+    globalThis.showSection = function(sectionName) {
+        if (typeof globalThis.__real_showSection === 'function') {
+            try { return globalThis.__real_showSection(sectionName); } catch (e) { console.warn('showSection error', e); }
+        }
+        // queue call for later when real impl is ready
+        globalThis.__queuedShowSection.push(sectionName);
+    };
+}
+
+function onServerTypeChange() {
+    const t = document.getElementById('server-type')?.value;
+        document.getElementById('forge-version-group').style.display = (t === 'forge') ? 'block' : 'none'; // Show forge version group
+    document.getElementById('fabric-loader-group').style.display = (t === 'fabric') ? 'block' : 'none';
+}
+
+// When server type changes in the create modal, reload version lists
+function onServerTypeChangeDebounced() {
+    onServerTypeChange();
+    loadVersions();
+    // Réafficher les onglets par défaut
+        try {
+            const modsTab = document.querySelector('.tab[data-view="mods"]');
+            const pluginsTab = document.querySelector('.tab[data-view="plugins"]');
+            if (modsTab) modsTab.style.display = '';
+            if (pluginsTab) pluginsTab.style.display = '';
+        } catch (e) { console.warn('onServerTypeChangeDebounced: failed to reset tabs', e); }
+
+        // nothing else here
+}
+
+async function loadForgeBuilds(version) {
+    try {
+        const resp = await apiFetch(`/api/forge/builds/${version}`);
+            const data = await resp.json();
+        const select = document.getElementById('forge-version');
+        if (select && data.builds) {
+            select.innerHTML = data.builds.map(b => `<option value="${b.full_version}">${b.forge_version}</option>`).join('');
+        }
+    } catch (e) { console.warn('Forge builds error', e); }
+}
+
+// Récupère et remplit la liste des loaders Fabric compatibles pour une version MC donnée
+async function loadFabricLoaders(mcVersion) {
+    try {
+        const resp = await apiFetch(`/api/fabric/loaders/${encodeURIComponent(mcVersion)}`);
+        const data = await resp.json();
+        const loaders = data.loaders || [];
+        const select = document.getElementById('fabric-loader');
+        if (select) {
+            // Loaders peut être un tableau de strings ou d'objets {version, stable, ...}
+            select.innerHTML = loaders.map(l => {
+                const version = (typeof l === 'object' && l !== null) ? (l.version || l.name || JSON.stringify(l)) : String(l);
+                return `<option value="${escapeHtmlAttr(version)}">${escapeHtml(version)}</option>`;
+            }).join('');
+        }
+    } catch (e) { console.warn('Fabric loaders error', e); }
+}
 let logInterval = null;
 let statusInterval = null;
 let metricsInterval = null;
@@ -15,6 +79,30 @@ let currentLang = 'fr';
 let autoScroll = true;
 let logFilter = 'all';
 let allLogs = [];
+// Selected mods for creation
+let selectedMods = [];
+// Exposed for external callers and to make usage explicit for static analysis
+globalThis.selectedMods = selectedMods;
+
+// Render the selected mods area in the creation modal (no-op if UI removed)
+function renderSelectedMods() {
+    try {
+        const container = document.getElementById('selected-mods');
+        if (!container) return; // UI not present
+        if (!Array.isArray(selectedMods) || selectedMods.length === 0) {
+            container.innerHTML = '<div class="text-muted">Aucun mod sélectionné</div>';
+            return;
+        }
+        container.innerHTML = selectedMods.map(m => `<div class="chip">${escapeHtml(m.name || m.slug || m)}</div>`).join(' ');
+    } catch (e) { console.warn('renderSelectedMods failed', e); }
+}
+
+globalThis.renderSelectedMods = renderSelectedMods;
+let jobPoller = null;
+
+// Current server context for mods (loader and MC version)
+let currentServerLoader = null;
+let currentServerMcVersion = null;
 
 // Amélioration 1: Historique des commandes
 let commandHistory = [];
@@ -96,7 +184,7 @@ function loadUserPreferences() {
             if (newPwd) newPwd.value = '';
             if (confirmPwd) confirmPwd.value = '';
             if (emailInp) emailInp.value = currentUser?.email || '';
-        } catch (e) { /* silent */ }
+        } catch (e) { console.warn('loadUserPreferences: failed to restore password/email inputs', e); }
 }
 
 function saveUserPreferences() {
@@ -109,7 +197,7 @@ function loadCommandHistory() {
     if (saved) {
         try {
             commandHistory = JSON.parse(saved);
-        } catch (e) { }
+        } catch (e) { console.warn('loadCommandHistory: failed to parse stored history', e); }
     }
 }
 
@@ -123,7 +211,7 @@ function loadFavoriteCommands() {
     if (saved) {
         try {
             favoriteCommands = JSON.parse(saved);
-        } catch (e) { }
+        } catch (e) { console.warn('loadFavoriteCommands: failed to parse favorites', e); }
     }
 }
 
@@ -160,131 +248,20 @@ function addCurrentCommandToFavorites() {
 
 // Amélioration : Afficher les commandes favorites
 function renderFavoriteCommands() {
-    const container = document.getElementById('favorite-commands-list');
-    const bar = document.getElementById('favorite-commands-bar');
-    if (!container) return;
-
-    if (favoriteCommands.length === 0) {
-        if (bar) bar.style.display = 'none';
-        container.innerHTML = '';
-        return;
-    }
-
-    if (bar) bar.style.display = 'flex';
-
-    container.innerHTML = favoriteCommands.map(cmd => `
-        <button class="fav-cmd-btn" onclick="useFavoriteCommand('${escapeHtmlAttr(cmd)}')" title="${escapeHtmlAttr(cmd)}">
-            <span class="fav-cmd-text">${escapeHtml(cmd.length > 15 ? cmd.substring(0, 15) + '...' : cmd)}</span>
-            <span class="fav-cmd-remove" onclick="event.stopPropagation(); removeFavoriteCommand('${escapeHtmlAttr(cmd)}')">
-                <i class="fas fa-times"></i>
-            </span>
-        </button>
-    `).join('');
+    const list = document.getElementById('favorite-commands-list');
+    if (!list) return;
+    list.innerHTML = favoriteCommands.map(cmd => {
+        return `<div class="fav-command"><button class="plugin-favorite" onclick="runFavoriteCommand('${escapeHtmlAttr(cmd)}')">${escapeHtml(cmd)}</button> <button class="btn-icon btn-small" title="Retirer" onclick="removeFavoriteCommand('${escapeHtmlAttr(cmd)}')">×</button></div>`;
+    }).join('');
 }
 
-// Amélioration : Utiliser une commande favorite
-function useFavoriteCommand(cmd) {
+function runFavoriteCommand(cmd) {
     const input = document.getElementById('cmd-input');
-    if (input) {
-        input.value = cmd;
-        input.focus();
-    }
+    if (!input) return;
+    input.value = cmd;
+    sendCommand();
 }
 
-// Amélioration : Échapper les attributs HTML
-function escapeHtmlAttr(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-// Amélioration 12: Détection de connexion
-function setupConnectionDetection() {
-    window.addEventListener('online', () => {
-        isOnline = true;
-        reconnectAttempts = 0;
-        showToast('✅ Connexion rétablie', 'success');
-        if (currentServer) {
-            startStatusPolling();
-            startLogStream();
-        }
-    });
-
-    window.addEventListener('offline', () => {
-        isOnline = false;
-        showToast('⚠️ Connexion perdue', 'warning');
-        stopStatusPolling();
-        stopLogStream();
-    });
-}
-
-// Amélioration 13: Détection d'inactivité
-function setupIdleDetection() {
-    const resetActivity = () => { lastActivity = Date.now(); };
-
-    document.addEventListener('mousemove', resetActivity);
-    document.addEventListener('keydown', resetActivity);
-    document.addEventListener('click', resetActivity);
-
-    setInterval(() => {
-        if (Date.now() - lastActivity > IDLE_TIMEOUT) {
-            // Réduire la fréquence des requêtes en mode inactif
-            if (logInterval) {
-                clearInterval(logInterval);
-                logInterval = setInterval(loadLogs, 30000); // 30s au lieu de 5s
-            }
-        }
-    }, 60000);
-}
-
-// Amélioration 14: Raccourcis clavier globaux
-function setupGlobalShortcuts() {
-    document.addEventListener('keydown', (e) => {
-        // Ignorer si on est dans un input
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-            // Sauf pour les raccourcis avec Ctrl
-            if (!e.ctrlKey) return;
-        }
-
-        // Ctrl+S - Sauvegarder la config
-        if (e.ctrlKey && e.key === 's') {
-            e.preventDefault();
-            const configView = document.getElementById('view-config');
-            if (configView && configView.classList.contains('active')) {
-                saveConfig();
-            }
-        }
-
-        // Ctrl+Enter - Envoyer la commande
-        if (e.ctrlKey && e.key === 'Enter') {
-            e.preventDefault();
-            sendCommand();
-        }
-
-        // F1-F5 - Changer d'onglet
-        if (e.key === 'F1') { e.preventDefault(); switchTab('console'); }
-        if (e.key === 'F2') { e.preventDefault(); switchTab('players'); }
-        if (e.key === 'F3') { e.preventDefault(); switchTab('plugins'); }
-        if (e.key === 'F4') { e.preventDefault(); switchTab('config'); }
-        if (e.key === 'F5') { e.preventDefault(); switchTab('backups'); }
-
-        // Ctrl+R - Rafraîchir
-        if (e.ctrlKey && e.key === 'r') {
-            e.preventDefault();
-            refreshAll();
-        }
-
-        // Escape - Fermer les modals
-        if (e.key === 'Escape') {
-            closeModal();
-            closePlayerModal();
-            closeScheduleModal();
-        }
-    });
-}
 
 // Amélioration 15: Navigation historique commandes
 function handleCommandInput(event) {
@@ -384,43 +361,95 @@ function selectSuggestion(cmd) {
     if (popup) popup.style.display = 'none';
 }
 
-// Amélioration 17: Fonction debounce
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
+// Expose functions used by inline handlers so static analysis recognizes usage
+try {
+    globalThis.runFavoriteCommand = runFavoriteCommand;
+    globalThis.removeFavoriteCommand = removeFavoriteCommand;
+    globalThis.addFavoriteCommand = addFavoriteCommand;
+    globalThis.handleCommandInput = handleCommandInput;
+    globalThis.selectSuggestion = selectSuggestion;
+    globalThis.addCurrentCommandToFavorites = addCurrentCommandToFavorites;
+    globalThis.copyToClipboard = copyToClipboard;
+    globalThis.importPreferences = importPreferences;
+    globalThis.sendDesktopNotification = sendDesktopNotification;
+    globalThis.robustFetch = robustFetch;
+} catch (e) {
+    console.warn('Failed to expose inline handlers to globalThis', e);
 }
 
-// Amélioration 18: Fonction throttle
-function throttle(func, limit) {
-    let inThrottle;
-    return function (...args) {
-        if (!inThrottle) {
-            func.apply(this, args);
-            inThrottle = true;
-            setTimeout(() => inThrottle = false, limit);
-        }
-    };
-}
+// Debounce/throttle helpers: canonical implementations are defined later (kept singular)
 
 // Amélioration 19: Notifications de bureau
 function requestNotificationPermission() {
-    if ('Notification' in window && Notification.permission === 'default') {
+    if ('Notification' in globalThis && globalThis.Notification.permission === 'default') {
         Notification.requestPermission();
     }
 }
 
 function sendDesktopNotification(title, body, icon = '/static/icon.png') {
     if (!userPreferences.desktopNotifications) return;
-    if ('Notification' in window && Notification.permission === 'granted') {
+    if ('Notification' in globalThis && globalThis.Notification.permission === 'granted') {
         new Notification(title, { body, icon });
     }
+}
+
+// Connection detection: monitor online/offline and probe a simple ping endpoint
+function setupConnectionDetection() {
+    if (globalThis.__mcp_setupConnectionDetectionDone) return;
+    globalThis.__mcp_setupConnectionDetectionDone = true;
+
+    try {
+        window.addEventListener('online', () => {
+            isOnline = true;
+            reconnectAttempts = 0;
+            try { showToast('Connexion rétablie', 'success'); } catch (e) {}
+        });
+        window.addEventListener('offline', () => {
+            isOnline = false;
+            try { showToast('Hors-ligne', 'warning'); } catch (e) {}
+        });
+
+        // lightweight poll to detect backend availability
+        setInterval(async () => {
+            if (!navigator.onLine) { isOnline = false; return; }
+            try {
+                const r = await fetch('/api/ping', { cache: 'no-store' });
+                isOnline = r.ok;
+            } catch (e) { isOnline = false; }
+        }, 30000);
+    } catch (e) { console.warn('setupConnectionDetection failed', e); }
+}
+
+// Idle detection: update lastActivity on user events
+function setupIdleDetection() {
+    if (globalThis.__mcp_setupIdleDetectionDone) return;
+    globalThis.__mcp_setupIdleDetectionDone = true;
+    try {
+        const handler = () => {
+            lastActivity = Date.now();
+            if (sleepMode) {
+                sleepMode = false;
+                try { showToast('Activité détectée — réveil', 'info'); } catch (e) {}
+            }
+        };
+        ['mousemove', 'keydown', 'scroll', 'touchstart', 'click'].forEach(ev => document.addEventListener(ev, handler, { passive: true }));
+    } catch (e) { console.warn('setupIdleDetection failed', e); }
+}
+
+// Global shortcuts for convenience (idempotent)
+function setupGlobalShortcuts() {
+    if (globalThis.__mcp_setupGlobalShortcutsDone) return;
+    globalThis.__mcp_setupGlobalShortcutsDone = true;
+    try {
+        document.addEventListener('keydown', (e) => {
+            try {
+                const key = (e.key || '').toLowerCase();
+                if (e.ctrlKey && key === 'k') { e.preventDefault(); document.getElementById('cmd-input')?.focus(); }
+                if (e.ctrlKey && e.shiftKey && key === 'p') { e.preventDefault(); if (typeof refreshAll === 'function') refreshAll(); }
+                if (e.ctrlKey && key === 'l') { e.preventDefault(); if (typeof logout === 'function') logout(); }
+            } catch (err) { console.warn('global shortcut handler failed', err); }
+        });
+    } catch (e) { console.warn('setupGlobalShortcuts failed', e); }
 }
 
 // Amélioration 20: Sons de notification
@@ -429,7 +458,7 @@ function playNotificationSound(type = 'info') {
 
     // Utiliser l'API Web Audio pour jouer un son simple
     try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const audioContext = new (globalThis.AudioContext || globalThis.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
 
@@ -449,9 +478,7 @@ function playNotificationSound(type = 'info') {
 
         oscillator.start();
         oscillator.stop(audioContext.currentTime + 0.1);
-    } catch (e) {
-        // Ignorer les erreurs audio
-    }
+    } catch (e) { console.warn('playSound: audio playback failed', e); }
 }
 
 
@@ -462,17 +489,17 @@ function playNotificationSound(type = 'info') {
 
 // Amélioration 21: Surveillance mémoire JS
 setInterval(() => {
-    if (window.performance && performance.memory) {
+    if (globalThis.performance?.memory) {
         sessionStats.jsHeap = performance.memory.usedJSHeapSize;
     }
 }, 10000);
 
 // Amélioration 22: Nettoyage à la fermeture (utiliser pagehide au lieu de unload)
-window.addEventListener('pagehide', () => {
+globalThis.addEventListener('pagehide', () => {
     // Nettoyage global - sauvegarder les préférences
     try {
         saveUserPreferences();
-    } catch (e) { }
+    } catch (e) { console.warn('saveUserPreferences failed', e); }
 });
 
 // Amélioration 23: Limitation du nombre d'API calls simultanés
@@ -498,24 +525,24 @@ async function robustFetch(url, options = {}, retries = 3) {
 }
 
 // Amélioration 25: Timeout sur fetch
-async function fetchWithTimeout(url, options = {}, timeout = 8000) {
+const fetchWithTimeout = async (url, options = {}, timeout = 8000) => {
     return Promise.race([
         fetch(url, options),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
     ]);
-}
+};
 
 // Amélioration 26: Validation stricte des entrées utilisateur
-function validateInput(str, type = 'text') {
+const validateInput = (str, type = 'text') => {
     if (typeof str !== 'string') return false;
     if (type === 'text') return str.length < 200 && !/\0/.test(str);
     if (type === 'cmd') return /^\/?[a-z0-9_\- ]+$/i.test(str);
     return true;
-}
+};
 
 // Amélioration 27: Historique des erreurs JS
 let jsErrorLog = [];
-window.addEventListener('error', e => {
+globalThis.addEventListener('error', e => {
     jsErrorLog.push({
         message: e.message,
         file: e.filename,
@@ -543,29 +570,16 @@ async function checkApiHealth() {
     try {
         await fetch('/api/ping', { cache: 'no-store' });
         document.body.classList.remove('api-down');
-    } catch {
+    } catch (e) {
         document.body.classList.add('api-down');
         showGlobalError('API injoignable');
+        console.warn('checkApiHealth failed', e);
     }
 }
 setInterval(checkApiHealth, 15000);
 
 // Amélioration 30: Limitation du spam de notifications
-let lastNotifTime = 0;
-function throttledNotify(title, body) {
-    if (Date.now() - lastNotifTime < 2000) return;
-    lastNotifTime = Date.now();
-    sendDesktopNotification(title, body);
-}
-
-// Amélioration 31: Sauvegarde automatique des logs côté client
-function saveLogsToFile() {
-    const blob = new Blob([allLogs.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'mcpanel_logs_' + (new Date()).toISOString().replace(/[:.]/g, '-') + '.txt';
-    a.click();
-}
+// throttledNotify and saveLogsToFile are currently unused and removed to reduce code noise.
 
 // Amélioration 32: Nettoyage périodique du cache
 setInterval(() => {
@@ -577,34 +591,25 @@ setInterval(() => {
 }, 60000);
 
 // Amélioration 33: Mode compact automatique sur mobile
-if (window.innerWidth < 600) userPreferences.compactMode = true;
+if (globalThis.innerWidth < 600) userPreferences.compactMode = true;
 
 // Amélioration 34: Affichage du temps de réponse API
-async function timedFetch(url, options) {
+const timedFetch = async (url, options) => {
     const t0 = performance.now();
     const res = await fetch(url, options);
     const t1 = performance.now();
     sessionStats.apiLastResponse = t1 - t0;
     return res;
-}
+};
 
 // Amélioration 35: Affichage du statut réseau
-window.addEventListener('online', () => showGlobalError('Connexion rétablie'));
-window.addEventListener('offline', () => showGlobalError('Connexion perdue'));
+globalThis.addEventListener('online', () => showGlobalError('Connexion rétablie'));
+globalThis.addEventListener('offline', () => showGlobalError('Connexion perdue'));
 
-// Amélioration 36: Limite de lignes dans la console
-function trimConsoleLogs(max = userPreferences.logMaxLines) {
-    if (allLogs.length > max) allLogs = allLogs.slice(-max);
-}
-
-// Amélioration 37: Mode lecture seule pour la console
-let consoleReadOnly = false;
+// Amélioration 36: Limite de lignes dans la console (handled inline where needed)
 
 // Amélioration 38: Affichage du nombre de joueurs connectés
-function updatePlayerCount(count) {
-    const el = document.getElementById('player-count');
-    if (el) el.textContent = count;
-}
+// updatePlayerCount removed (unused)
 
 // Amélioration 39: Mode sombre automatique selon l'heure
 function autoDarkMode() {
@@ -614,10 +619,7 @@ function autoDarkMode() {
 setInterval(autoDarkMode, 60000);
 
 // Amélioration 40: Protection contre double clic sur boutons critiques
-function preventDoubleClick(btn) {
-    btn.disabled = true;
-    setTimeout(() => { btn.disabled = false; }, 1500);
-}
+// preventDoubleClick removed (unused)
 
 // Amélioration 41: Affichage de la version du client
 function showClientVersion() {
@@ -649,16 +651,22 @@ setInterval(() => {
 document.querySelectorAll('button').forEach(b => b.setAttribute('tabindex', '0'));
 
 // Amélioration 44: Focus automatique sur la console à l'ouverture
-window.addEventListener('load', () => {
+globalThis.addEventListener('load', () => {
     const c = document.getElementById('console-input');
     if (c) c.focus();
+    // Attach modal related events
+    try {
+            const ver = document.getElementById('server-version');
+        const type = document.getElementById('server-type');
+            if (ver) ver.addEventListener('change', (e) => {
+            const v = e.target.value;
+            const t = type?.value || 'paper';
+            if (t === 'forge') loadForgeBuilds(v);
+            if (t === 'fabric') loadFabricLoaders(v);
+        });
+        if (type) type.addEventListener('change', () => { onServerTypeChange(); });
+    } catch (e) { console.warn('attach modal events failed', e); }
 });
-
-// Amélioration 45: Affichage du statut du tunnel dans le titre
-function updateTunnelStatusTitle(status) {
-    document.title = 'MCPanel [' + status + ']';
-}
-
 
 // Amélioration 50: Mode veille automatique (désactive les requêtes)
 let sleepMode = false;
@@ -666,126 +674,6 @@ setInterval(() => {
     if (Date.now() - lastActivity > IDLE_TIMEOUT) sleepMode = true;
     else sleepMode = false;
 }, 10000);
-
-// Amélioration 51: Affichage du statut du cache
-function showCacheStatus() {
-    let el = document.getElementById('cache-status');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'cache-status';
-        el.style = 'position:fixed;top:60px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Cache: ' + (dataCache.servers ? 'OK' : 'Vide');
-}
-
-// Amélioration 52: Affichage du nombre de notifications
-setInterval(() => {
-    let el = document.getElementById('notif-count');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'notif-count';
-        el.style = 'position:fixed;top:90px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Notifications: ' + sessionStats.notifications;
-}, 15000);
-
-// Amélioration 53: Affichage du nombre de commandes envoyées
-setInterval(() => {
-    let el = document.getElementById('cmd-count');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'cmd-count';
-        el.style = 'position:fixed;top:120px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Cmds: ' + sessionStats.commandsSent;
-}, 15000);
-
-// Amélioration 54: Affichage du nombre d'appels API
-setInterval(() => {
-    let el = document.getElementById('api-count');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'api-count';
-        el.style = 'position:fixed;top:150px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'API: ' + sessionStats.apiCalls;
-}, 15000);
-
-// Amélioration 55: Affichage du nombre de joueurs en cache
-setInterval(() => {
-    let el = document.getElementById('player-cache-count');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'player-cache-count';
-        el.style = 'position:fixed;top:180px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Players cache: ' + Object.keys(cachedPlayers).length;
-}, 20000);
-
-// Amélioration 56: Affichage du statut du mode compact
-function showCompactStatus() {
-    let el = document.getElementById('compact-status');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'compact-status';
-        el.style = 'position:fixed;top:210px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Compact: ' + (userPreferences.compactMode ? 'Oui' : 'Non');
-}
-
-// Amélioration 57: Affichage du statut du mode sombre
-function showDarkStatus() {
-    let el = document.getElementById('dark-status');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'dark-status';
-        el.style = 'position:fixed;top:240px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Dark: ' + (document.body.classList.contains('dark') ? 'Oui' : 'Non');
-}
-
-// Amélioration 58: Affichage du statut du mode veille
-function showSleepStatus() {
-    let el = document.getElementById('sleep-status');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'sleep-status';
-        el.style = 'position:fixed;top:270px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Sleep: ' + (sleepMode ? 'Oui' : 'Non');
-}
-
-// Amélioration 59: Affichage du statut du mode démo
-function showDemoStatus() {
-    let el = document.getElementById('demo-status');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'demo-status';
-        el.style = 'position:fixed;top:300px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Démo: ' + (demoMode ? 'Oui' : 'Non');
-}
-
-// Amélioration 60: Affichage du statut du mode lecture seule
-function showReadOnlyStatus() {
-    let el = document.getElementById('readonly-status');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'readonly-status';
-        el.style = 'position:fixed;top:330px;right:0;background:#222;color:#fff;padding:2px 8px;font-size:12px;z-index:9999;opacity:0.7;';
-        document.body.appendChild(el);
-    }
-    el.textContent = 'Lecture seule: ' + (consoleReadOnly ? 'Oui' : 'Non');
-}
 
 // ================================
 // Améliorations 61 à 100 : Fonctionnalités avancées
@@ -811,60 +699,25 @@ function confirmAction(message, callback) {
     document.body.appendChild(modal);
 }
 
-// Amélioration 62: Clipboard utility robuste
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-        showNotification('Copié !', 'success');
-        return true;
-    } catch {
-        // Fallback
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showNotification('Copié !', 'success');
-        return true;
-    }
-}
+
 
 // Amélioration 63: Export des données de session
-function exportSessionData() {
-    const data = {
-        sessionStats,
-        commandHistory,
-        allLogs: allLogs.slice(-500),
-        jsErrorLog,
-        userPreferences,
-        exportDate: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'mcpanel_session_' + Date.now() + '.json';
-    a.click();
-}
+// exportSessionData removed (unused)
 
 // Amélioration 64: Import des préférences
-function importPreferences(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        try {
-            const data = JSON.parse(e.target.result);
-            if (data.userPreferences) {
-                Object.assign(userPreferences, data.userPreferences);
-                saveUserPreferences();
-                showNotification('Préférences importées', 'success');
-            }
-        } catch {
-            showNotification('Erreur d\'import', 'error');
+async function importPreferences(file) {
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (data.userPreferences) {
+            Object.assign(userPreferences, data.userPreferences);
+            saveUserPreferences();
+            showNotification('Préférences importées', 'success');
         }
-    };
-    reader.readAsText(file);
+    } catch (e) {
+        console.warn('importPreferences failed', e);
+        showNotification('Erreur d\'import', 'error');
+    }
 }
 
 // Amélioration 65: Système de thèmes personnalisés
@@ -883,8 +736,22 @@ function applyCustomTheme(themeName) {
     localStorage.setItem('mcpanel_theme', themeName);
 }
 
+// Charge le thème courant (mode sombre/clair + thème personnalisé)
+function loadTheme() {
+    try {
+        // Init theme manager (dark/light)
+        if (globalThis.themeManager?.init) globalThis.themeManager.init();
+
+        // Apply saved custom theme if any
+        const custom = localStorage.getItem('mcpanel_theme');
+        if (custom) applyCustomTheme(custom);
+    } catch (e) {
+        console.warn('Erreur loadTheme():', e);
+    }
+}
+
 // Amélioration 66: Détection du type de serveur
-function detectServerType(serverName) {
+const detectServerType = (serverName) => {
     const types = {
         paper: /paper/i,
         spigot: /spigot/i,
@@ -897,19 +764,19 @@ function detectServerType(serverName) {
         if (regex.test(serverName)) return type;
     }
     return 'unknown';
-}
+};
 
 // Amélioration 67: Formatage automatique des tailles
-function formatBytes(bytes, decimals = 2) {
+const formatBytes = (bytes, decimals = 2) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
-}
+    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+};
 
 // Amélioration 68: Formatage automatique des durées
-function formatDuration(ms) {
+const formatDuration = (ms) => {
     const s = Math.floor(ms / 1000);
     const m = Math.floor(s / 60);
     const h = Math.floor(m / 60);
@@ -918,7 +785,7 @@ function formatDuration(ms) {
     if (h > 0) return h + 'h ' + (m % 60) + 'm';
     if (m > 0) return m + 'm ' + (s % 60) + 's';
     return s + 's';
-}
+};
 
 // Amélioration 69: Détection des patterns d'erreur dans les logs
 const errorPatterns = [
@@ -953,7 +820,7 @@ function extractPlayerIPs() {
 }
 
 // Amélioration 72: Détection des crashes serveur
-function detectCrashes() {
+const detectCrashes = () => {
     const crashPatterns = [
         /server crashed/i,
         /OutOfMemoryError/i,
@@ -961,6 +828,303 @@ function detectCrashes() {
         /server is stopping/i
     ];
     return allLogs.filter(line => crashPatterns.some(p => p.test(line)));
+};
+
+// Analyse les lignes de crash pour extraire un mod potentiellement en cause
+function analyzeCrash(lines) {
+    const text = lines.join('\n');
+    const info = { raw: text };
+
+    // 1) Detect suggested Minecraft version change from lines like "Replace 'Minecraft' ... with version 1.21.10"
+    const mcReplace = text.match(/Replace\s+'Minecraft'[\s\S]*?with(?: any version)?\s*([0-9]+\.[0-9]+\.[0-9]+)/i)
+        || text.match(/replace\[\[minecraft.*?-> add:minecraft\s*([0-9]+\.[0-9]+\.[0-9]+)/i);
+    if (mcReplace) info.suggested_minecraft_version = mcReplace[1];
+
+    // 2) Detect explicit mod incompatibilities
+    const modLines = [];
+    const modRegex = /Mod\s+'([^']+)'\s*\(([^)]+)\)[\s\S]*?requires(?: any version)?(?: between)?\s*([0-9\.\-\[\],<>]*)/ig;
+    let m;
+    while ((m = modRegex.exec(text)) !== null) {
+        modLines.push({ name: m[1], slug: m[2], required: (m[3] || '').trim() });
+    }
+    if (modLines.length > 0) info.offending_mods = modLines;
+
+    // 3) Find filenames referenced
+    const fileMatch = text.match(/([\w\-]+(?:\.jar))/i);
+    if (fileMatch) info.filename = fileMatch[1];
+
+    // 4) Generic markers
+    if (/Incompatible mods found|Mod resolution failed|Some of your mods are incompatible/i.test(text)) {
+        info.reason = 'Incompatible mods detected';
+    }
+
+    if (info.suggested_minecraft_version || info.offending_mods || info.filename || info.reason) return info;
+    return null;
+}
+
+// Periodically check logs for new crashes and notify + highlight offending mod
+let __lastCrashCount = 0;
+async function checkForCrashes() {
+    try {
+        const crashes = detectCrashes();
+        // If no crashes anymore, remove banner
+        if (crashes.length === 0 && __lastCrashCount > 0) {
+            __lastCrashCount = 0;
+            try { document.getElementById('mcp-crash-banner')?.remove(); } catch (e) {}
+        }
+
+        if (crashes.length > __lastCrashCount) {
+            const newLines = crashes.slice(__lastCrashCount);
+            __lastCrashCount = crashes.length;
+            const info = analyzeCrash(newLines);
+            const message = info ? (`Serveur crashé: ${info.name || info.filename || info.reason}`) : 'Serveur crashé!';
+            try { showToast('error', message); } catch (e) { console.warn('showToast in checkForCrashes failed', e); }
+
+            // If we have offending mods (array) prefer slug/name, otherwise filename
+            let offending = null;
+            if (info?.offending_mods && Array.isArray(info.offending_mods) && info.offending_mods.length > 0) {
+                offending = info.offending_mods[0].slug || info.offending_mods[0].name || null;
+            }
+            if (!offending) offending = info?.filename || info?.slug || info?.name;
+            if (offending) {
+                document.querySelectorAll('#fabric-installed-mods .installed-mod-row').forEach(el => {
+                    try {
+                        if (el.textContent && el.textContent.includes(offending)) {
+                            el.classList.add('mod-offending');
+                        } else {
+                            el.classList.remove('mod-offending');
+                        }
+                    } catch (e) {}
+                });
+                // Also show a persistent banner at top
+                try { showCrashBanner(offending, message, info); } catch (e) { console.warn('showCrashBanner failed', e); }
+            }
+        }
+    } catch (e) { console.warn('checkForCrashes failed', e); }
+}
+
+setInterval(checkForCrashes, 5000);
+
+// Show a persistent banner indicating offending mod/server crash
+function showCrashBanner(offending, message, info = null) {
+    try {
+        let banner = document.getElementById('mcp-crash-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'mcp-crash-banner';
+            banner.className = 'mcp-crash-banner';
+            banner.innerHTML = `<div id="mcp-crash-message"></div><div><button class="close-btn" onclick="document.getElementById('mcp-crash-banner')?.remove()">×</button></div>`;
+            document.body.appendChild(banner);
+            // load style
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = '/static/crash_banner.css';
+            document.head.appendChild(link);
+        }
+        const msgEl = document.getElementById('mcp-crash-message');
+        if (msgEl) msgEl.textContent = `${message} — probable mod: ${offending}`;
+        // Add action buttons if applicable
+        const btnsId = 'mcp-crash-actions';
+        let btns = document.getElementById(btnsId);
+        if (!btns) {
+            btns = document.createElement('div');
+            btns.id = btnsId;
+            btns.style.marginLeft = '12px';
+            banner.querySelector('div').appendChild(btns);
+        }
+        btns.innerHTML = '';
+        // Add uninstall button
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.className = 'btn btn-danger';
+        uninstallBtn.textContent = `Désinstaller ${offending}`;
+        uninstallBtn.onclick = async () => {
+            if (!currentServer) return showToast('error', 'Sélectionnez un serveur');
+            if (!confirm(`Désinstaller ${offending} ?`)) return;
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Désinstallation...';
+            try {
+                const res = await uninstallModByIdentifier(offending);
+                showToast('success', res.message || 'Mod désinstallé');
+                await refreshInstalledMods();
+                // remove banner if it referenced this mod
+                try { document.getElementById('mcp-crash-banner')?.remove(); } catch (e) {}
+            } catch (e) {
+                console.error('uninstallModByIdentifier failed', e);
+                showToast('error', e.message || 'Erreur désinstallation');
+            } finally {
+                uninstallBtn.disabled = false;
+                uninstallBtn.textContent = `Désinstaller ${offending}`;
+            }
+        };
+        // Add change version button if suggested version present in message
+        const verMatch = message.match(/([0-9]+\.[0-9]+\.[0-9]+)/);
+        if (verMatch) {
+            const ver = verMatch[1];
+            const verBtn = document.createElement('button');
+            verBtn.className = 'btn btn-secondary';
+            verBtn.style.marginLeft = '8px';
+            verBtn.textContent = `Changer version Minecraft → ${ver}`;
+            verBtn.onclick = async () => {
+                if (!currentServer) return showToast('error', 'Sélectionnez un serveur');
+                if (!confirm(`Définir la version du serveur à ${ver} et redémarrer ?`)) return;
+                try {
+                    await apiJson(`/api/server/${encodeURIComponent(currentServer)}/meta`, { method: 'POST', body: JSON.stringify({ version: ver }) });
+                    showToast('success', `Version définie à ${ver}`);
+                } catch (e) { console.error('set version failed', e); showToast('error', 'Erreur définition version'); }
+            };
+            btns.appendChild(verBtn);
+        }
+        btns.appendChild(uninstallBtn);
+        // Add mini-wizard button to propose multiple corrective actions
+        const wizardBtn = document.createElement('button');
+        wizardBtn.className = 'btn btn-primary';
+        wizardBtn.style.marginLeft = '8px';
+        wizardBtn.textContent = 'Assistant de réparation';
+        wizardBtn.title = 'Ouvrir l\'assistant pour proposer des actions (désinstaller, changer version)';
+        wizardBtn.onclick = () => {
+            try { openMiniWizard(info || { filename: offending, raw: message }); } catch (e) { console.warn('openMiniWizard failed', e); }
+        };
+        btns.appendChild(wizardBtn);
+    } catch (e) { console.warn('showCrashBanner failed', e); }
+}
+
+// Mini-wizard modal: propose actions based on crash analysis
+async function openMiniWizard(info) {
+    if (!currentServer) return showToast('error', 'Sélectionnez un serveur');
+    try {
+        // Fetch installed mods
+        const r = await apiFetch(`/api/server/${currentServer}/mods`);
+        const d = await r.json();
+        const installed = Array.isArray(d.mods) ? d.mods : [];
+
+        const modal = document.createElement('div');
+        modal.className = 'modal confirm-modal show';
+        modal.innerHTML = `
+            <div class="modal-content confirm-content" style="max-width:800px;">
+                <div class="modal-header"><h2><i class="fas fa-tools"></i> Assistant de réparation</h2></div>
+                <div class="modal-body" style="max-height:60vh;overflow:auto;">
+                    <p>Actions proposées pour <strong>${escapeHtml(currentServer)}</strong> :</p>
+                    <div style="margin-bottom:12px;">
+                        <label><input type="checkbox" id="wiz-apply-version"> Appliquer changement de version suggérée :</label>
+                        <input id="wiz-version-input" class="input-small" style="width:150px;margin-left:8px;" />
+                        <div id="wiz-version-note" style="font-size:0.9em;opacity:0.8;margin-top:6px"></div>
+                    </div>
+                    <div style="margin-bottom:12px;">
+                        <strong>Mods suspects (sélectionnés par défaut):</strong>
+                        <div id="wiz-suspects" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
+                    </div>
+                    <div>
+                        <strong>Mods installés (optionnel):</strong>
+                        <div id="wiz-installed" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
+                    </div>
+                </div>
+                <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                    <button class="btn btn-secondary btn-cancel">Annuler</button>
+                    <button class="btn btn-primary btn-apply">Appliquer les actions</button>
+                </div>
+            </div>`;
+
+        document.body.appendChild(modal);
+
+        // Prefill version if available
+        if (info && info.suggested_minecraft_version) {
+            modal.querySelector('#wiz-apply-version').checked = true;
+            modal.querySelector('#wiz-version-input').value = info.suggested_minecraft_version;
+            modal.querySelector('#wiz-version-note').textContent = `Version suggérée détectée: ${info.suggested_minecraft_version}`;
+        } else {
+            modal.querySelector('#wiz-apply-version').checked = false;
+            modal.querySelector('#wiz-version-input').value = '';
+            modal.querySelector('#wiz-version-note').textContent = '';
+        }
+
+        // Fill suspects
+        const suspectsEl = modal.querySelector('#wiz-suspects');
+        if (info && Array.isArray(info.offending_mods) && info.offending_mods.length) {
+            info.offending_mods.forEach(m => {
+                const id = `suspect-${Math.random().toString(36).slice(2,8)}`;
+                const row = document.createElement('label');
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                row.innerHTML = `<input type="checkbox" id="${id}" data-identifier="${escapeHtmlAttr(m.slug || m.name || '')}" checked style="margin-right:8px"> ${escapeHtml(m.name || m.slug || '')} <span style="opacity:0.7;margin-left:6px;font-size:0.9em">(${escapeHtml(m.required || '')})</span>`;
+                suspectsEl.appendChild(row);
+            });
+        } else if (info && info.filename) {
+            const id = `suspect-${Math.random().toString(36).slice(2,8)}`;
+            const row = document.createElement('label');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.innerHTML = `<input type="checkbox" id="${id}" data-identifier="${escapeHtmlAttr(info.filename)}" checked style="margin-right:8px"> ${escapeHtml(info.filename)}`;
+            suspectsEl.appendChild(row);
+        } else {
+            suspectsEl.innerHTML = '<div class="text-muted">Aucun mod suspect détecté automatiquement.</div>';
+        }
+
+        // Fill installed mods list
+        const installedEl = modal.querySelector('#wiz-installed');
+        if (installed && installed.length) {
+            installed.slice(0, 200).forEach(m => {
+                const id = `inst-${Math.random().toString(36).slice(2,8)}`;
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.innerHTML = `<input type="checkbox" id="${id}" data-identifier="${escapeHtmlAttr(m.filename || m.slug || m.name || '')}" style="margin-right:8px"> ${escapeHtml(m.filename || m.name || m.slug || '')}`;
+                installedEl.appendChild(label);
+            });
+        } else {
+            installedEl.innerHTML = '<div class="text-muted">Aucun mod détecté sur ce serveur.</div>';
+        }
+
+        // Button handlers
+        modal.querySelector('.btn-cancel').onclick = () => modal.remove();
+        modal.querySelector('.btn-apply').onclick = async () => {
+            const applyBtn = modal.querySelector('.btn-apply');
+            applyBtn.disabled = true;
+            try {
+                // Collect selected uninstalls from suspects and installed
+                const toUninstall = [];
+                modal.querySelectorAll('#wiz-suspects input[type=checkbox], #wiz-installed input[type=checkbox]').forEach(cb => {
+                    if (cb.checked) toUninstall.push(cb.getAttribute('data-identifier'));
+                });
+
+                // Apply version change if requested
+                if (modal.querySelector('#wiz-apply-version').checked) {
+                    const ver = modal.querySelector('#wiz-version-input').value.trim();
+                    if (ver) {
+                        try {
+                            await apiJson(`/api/server/${encodeURIComponent(currentServer)}/meta`, { method: 'POST', body: JSON.stringify({ version: ver }) });
+                            showToast('success', `Version définie à ${ver}`);
+                        } catch (e) {
+                            console.error('set version failed', e);
+                            showToast('error', 'Erreur définition version');
+                        }
+                    }
+                }
+
+                // Uninstall selected mods sequentially
+                for (const id of toUninstall) {
+                    try {
+                        showToast('info', `Désinstallation ${id}...`);
+                        await uninstallModByIdentifier(id);
+                        showToast('success', `${id} désinstallé`);
+                    } catch (e) {
+                        console.warn('wizard uninstall failed for', id, e);
+                        showToast('error', `Erreur désinstallation ${id}`);
+                    }
+                }
+
+                // Refresh UI
+                try { await refreshInstalledMods(); } catch (e) { console.warn('refresh after wizard failed', e); }
+                // Close modal and remove crash banner if applicable
+                modal.remove();
+                try { document.getElementById('mcp-crash-banner')?.remove(); } catch (e) {}
+            } finally {
+                applyBtn.disabled = false;
+            }
+        };
+    } catch (e) {
+        console.warn('openMiniWizard failed', e);
+        showToast('error', 'Impossible d\'ouvrir l\'assistant');
+    }
 }
 
 // Amélioration 73: Système de bookmarks pour les logs
@@ -974,20 +1138,19 @@ function addLogBookmark(lineIndex, note = '') {
 function loadLogBookmarks() {
     try {
         logBookmarks = JSON.parse(localStorage.getItem('mcpanel_bookmarks') || '[]');
-    } catch { logBookmarks = []; }
+    } catch (e) { logBookmarks = []; console.warn('loadLogBookmarks failed', e); }
 }
 
 // Amélioration 74: Recherche dans les logs
-function searchLogs(query, caseSensitive = false) {
+const searchLogsArray = (query, caseSensitive = false) => {
     const regex = new RegExp(query, caseSensitive ? 'g' : 'gi');
     return allLogs.map((line, i) => ({ line, index: i })).filter(l => regex.test(l.line));
-}
+};
 
 // Amélioration 75: Statistiques des logs
 function getLogStats() {
     return {
         total: allLogs.length,
-        errors: countLogErrors(),
         warnings: allLogs.filter(l => /\[WARN\]/i.test(l)).length,
         info: allLogs.filter(l => /\[INFO\]/i.test(l)).length,
         players: extractPlayerIPs().length
@@ -1005,7 +1168,7 @@ function saveMacro(name, commands) {
 function loadMacros() {
     try {
         userMacros = JSON.parse(localStorage.getItem('mcpanel_macros') || '{}');
-    } catch { userMacros = {}; }
+    } catch (e) { userMacros = {}; console.warn('loadUserMacros failed', e); }
 }
 
 function executeMacro(name) {
@@ -1040,14 +1203,63 @@ const serverTemplates = {
     minigames: { gamemode: 'adventure', difficulty: 'normal', pvp: true }
 };
 
+// Expose utility functions/collections to global scope so they can be used by UI
+try {
+    globalThis.fetchWithTimeout = fetchWithTimeout;
+    globalThis.validateInput = validateInput;
+    globalThis.timedFetch = timedFetch;
+    globalThis.detectServerType = detectServerType;
+    globalThis.countLogErrors = countLogErrors;
+    globalThis.detectCrashes = detectCrashes;
+    globalThis.addLogBookmark = addLogBookmark;
+    globalThis.loadLogBookmarks = loadLogBookmarks;
+    globalThis.searchLogsArray = searchLogsArray;
+    globalThis.getLogStats = getLogStats;
+    globalThis.saveMacro = saveMacro;
+    globalThis.executeMacro = executeMacro;
+    globalThis.scheduleCommand = scheduleCommand;
+    globalThis.cancelScheduledCommand = cancelScheduledCommand;
+    globalThis.serverTemplates = serverTemplates;
+    globalThis.scheduledCommands = scheduledCommands;
+    globalThis.userMacros = userMacros;
+    // Expose additional helpers used by UI or templates
+    globalThis.toggleFavoriteServer = toggleFavoriteServer;
+    globalThis.toggleFavoritePlugin = toggleFavoritePlugin;
+    globalThis.saveWidgetLayout = saveWidgetLayout;
+    globalThis.loadWidgetLayout = loadWidgetLayout;
+    globalThis.addCustomAlert = addCustomAlert;
+    globalThis.checkCustomAlerts = checkCustomAlerts;
+    globalThis.detectBottlenecks = detectBottlenecks;
+    globalThis.toggleHighPerfMode = toggleHighPerfMode;
+    globalThis.setUserCustomShortcut = setUserCustomShortcut;
+    globalThis.saveServerNote = saveServerNote;
+    globalThis.logAction = logAction;
+    globalThis.pushUndo = pushUndo;
+    globalThis.undo = undo;
+    globalThis.redo = redo;
+    globalThis.generateRconPassword = generateRconPassword;
+    globalThis.calculateUptime = calculateUptime;
+    globalThis.validateServerProperties = validateServerProperties;
+    globalThis.sortServers = sortServers;
+    globalThis.cachePluginInfo = cachePluginInfo;
+    globalThis.getPluginFromCache = getPluginFromCache;
+    globalThis.restoreFromBackup = restoreFromBackup;
+    globalThis.setPerformanceMode = setPerformanceMode;
+    globalThis.toggleGPU = toggleGPU;
+    globalThis.parseMinecraftVersion = parseMinecraftVersion;
+    globalThis.compareVersions = compareVersions;
+} catch (e) {
+    console.warn('Failed to expose utilities to globalThis', e);
+}
+
 // Amélioration 79: Vérification de la version Minecraft
 function parseMinecraftVersion(version) {
     const match = version.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
     if (!match) return null;
     return {
-        major: parseInt(match[1]),
-        minor: parseInt(match[2]),
-        patch: parseInt(match[3] || 0)
+        major: Number.parseInt(match[1]),
+        minor: Number.parseInt(match[2]),
+        patch: Number.parseInt(match[3] || 0)
     };
 }
 
@@ -1074,7 +1286,7 @@ function toggleFavoriteServer(serverName) {
 function loadFavoriteServers() {
     try {
         favoriteServers = JSON.parse(localStorage.getItem('mcpanel_favservers') || '[]');
-    } catch { favoriteServers = []; }
+    } catch (e) { favoriteServers = []; console.warn('loadFavoriteServers failed', e); }
 }
 
 // Amélioration 82: Tri intelligent des serveurs
@@ -1092,17 +1304,8 @@ function sortServers(servers, by = 'name') {
     return sorted;
 }
 
-// Amélioration 83: Gestionnaire de ressources
-const resourceManager = {
-    images: new Map(),
-    loadImage(url) {
-        if (this.images.has(url)) return this.images.get(url);
-        const img = new Image();
-        img.src = url;
-        this.images.set(url, img);
-        return img;
-    }
-};
+// Amélioration 83: Gestionnaire de ressources (retiré — inutilisé)
+// resourceManager removed to reduce dead code - images should be managed via DOM or a dedicated module.
 
 // Amélioration 84: Système de plugins favoriés
 let favoritePlugins = [];
@@ -1186,17 +1389,14 @@ function toggleHighPerfMode() {
 }
 
 // Amélioration 90: Système de widgets personnalisables
-let widgetLayout = [];
-
 function saveWidgetLayout(layout) {
-    widgetLayout = layout;
     localStorage.setItem('mcpanel_widgets', JSON.stringify(layout));
 }
 
 function loadWidgetLayout() {
     try {
-        widgetLayout = JSON.parse(localStorage.getItem('mcpanel_widgets') || '[]');
-    } catch { widgetLayout = []; }
+        return JSON.parse(localStorage.getItem('mcpanel_widgets') || '[]');
+    } catch (e) { console.warn('loadWidgetLayout failed', e); return []; }
 }
 
 // Amélioration 91: Gestionnaire de raccourcis personnalisés (étendu)
@@ -1210,7 +1410,7 @@ function setUserCustomShortcut(key, action) {
 function loadUserCustomShortcuts() {
     try {
         userCustomShortcuts = JSON.parse(localStorage.getItem('mcpanel_user_shortcuts') || '{}');
-    } catch { userCustomShortcuts = {}; }
+    } catch (e) { userCustomShortcuts = {}; console.warn('loadUserCustomShortcuts failed', e); }
 }
 
 // Amélioration 92: Système de notes par serveur
@@ -1224,7 +1424,7 @@ function saveServerNote(serverName, note) {
 function loadServerNotes() {
     try {
         serverNotes = JSON.parse(localStorage.getItem('mcpanel_notes') || '{}');
-    } catch { serverNotes = {}; }
+    } catch (e) { serverNotes = {}; console.warn('loadServerNotes failed', e); }
 }
 
 // Amélioration 93: Historique des actions
@@ -1304,7 +1504,7 @@ setInterval(() => {
     };
     localStorage.setItem('mcpanel_backup_' + Date.now(), JSON.stringify(backup));
     // Nettoyer les vieux backups (garder les 5 derniers)
-    const keys = Object.keys(localStorage).filter(k => k.startsWith('mcpanel_backup_')).sort();
+    const keys = Object.keys(localStorage).filter(k => k.startsWith('mcpanel_backup_')).sort((a, b) => a.localeCompare(b));
     while (keys.length > 5) {
         localStorage.removeItem(keys.shift());
     }
@@ -1312,12 +1512,12 @@ setInterval(() => {
 
 // Amélioration 99: Restauration depuis backup
 function restoreFromBackup() {
-    const keys = Object.keys(localStorage).filter(k => k.startsWith('mcpanel_backup_')).sort();
+    const keys = Object.keys(localStorage).filter(k => k.startsWith('mcpanel_backup_')).sort((a, b) => a.localeCompare(b));
     if (keys.length === 0) {
         showNotification('Aucun backup disponible', 'warning');
         return;
     }
-    const latestKey = keys[keys.length - 1];
+    const latestKey = keys.at(-1);
     try {
         const backup = JSON.parse(localStorage.getItem(latestKey));
         Object.assign(userPreferences, backup.userPreferences || {});
@@ -1328,8 +1528,9 @@ function restoreFromBackup() {
         userCustomShortcuts = backup.userCustomShortcuts || {};
         saveUserPreferences();
         showNotification('Restauration réussie', 'success');
-    } catch {
+    } catch (e) {
         showNotification('Erreur de restauration', 'error');
+        console.warn('restoreFromBackup failed', e);
     }
 }
 
@@ -1352,23 +1553,9 @@ function getSystemHealth() {
     return { score, status };
 }
 
-// Affichage de la santé système
-setInterval(() => {
-    const health = getSystemHealth();
-    let el = document.getElementById('system-health');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'system-health';
-        el.style = 'position:fixed;bottom:30px;right:10px;background:#222;color:#fff;padding:5px 12px;font-size:12px;z-index:9999;border-radius:12px;opacity:0.9;';
-        document.body.appendChild(el);
-    }
-    const colors = { excellent: '#4CAF50', good: '#8BC34A', fair: '#FFC107', poor: '#FF9800', critical: '#f44336' };
-    el.style.background = colors[health.status];
-    el.textContent = '🏥 ' + health.score + '% - ' + health.status.toUpperCase();
-}, 10000);
 
 // Initialiser les systèmes au chargement
-window.addEventListener('load', () => {
+globalThis.addEventListener('load', () => {
     loadLogBookmarks();
     loadMacros();
     loadFavoriteServers();
@@ -1377,57 +1564,65 @@ window.addEventListener('load', () => {
     loadServerNotes();
 });
 
-// ================================
-
-// VISUAL EFFECTS SYSTEM
-
-// ================================
-
-
+/*================================
+    VISUAL EFFECTS SYSTEM
+================================*/
 
 const visualSettings = {
-
     shader: 'none', // none, bloom, neon, chromatic, vignette, scanlines, rgb-split
-
     fullbright: false,
-
-    upscaling: 'off' // off, quality, balanced, performance, ultra, fsr
-
+    upscaling: 'off'
 };
 
-
-
-function loadVisualSettings() {
-
-    const saved = localStorage.getItem('mcpanel_visual');
-
-    if (saved) {
-
-        Object.assign(visualSettings, JSON.parse(saved));
-
-    }
-
-    applyVisualSettings();
-
-}
-
-
-
-function saveVisualSettings() {
-
-    localStorage.setItem('mcpanel_visual', JSON.stringify(visualSettings));
-
-    applyVisualSettings();
-// ================================
-// ACCOUNT / PASSWORD
-// ================================
-
-
-}
-
-
-
 function applyVisualSettings() {
+
+// Helper: determine server type using config, plugins, and mods
+async function detectServerType(serverName) {
+    try {
+        const r = await apiFetch(`/api/server/${serverName}/config`);
+        const config = await r.json();
+        let serverType = config.server_type || config.serverType || null;
+        if (serverType) return serverType;
+
+        if (config.forge_version) return 'forge';
+        if (config.loader_version) return 'fabric';
+
+        try {
+            const pluginsResp = await apiFetch(`/api/server/${serverName}/plugins/installed`);
+            const plugins = await pluginsResp.json();
+            if (Array.isArray(plugins) && plugins.length > 0) return 'paper';
+        } catch (e) { console.warn('detectServerType: error while checking installed plugins', e); }
+
+        try {
+            const modsResp = await apiFetch(`/api/server/${serverName}/mods`);
+            const modsData = await modsResp.json();
+            const mods = modsData.mods || modsData || [];
+            if (Array.isArray(mods) && mods.length > 0) {
+                if (config.forge_version) return 'forge';
+                if (config.loader_version) return 'fabric';
+                return 'forge';
+            }
+        } catch (e) { console.warn('detectServerType: error while checking installed mods', e); }
+
+        return 'paper';
+    } catch (e) {
+        console.warn('detectServerType: failed to get config', e);
+        return 'paper';
+    }
+}
+    // If a server is selected, adapt UI tabs depending on its type
+    if (currentServer) {
+        (async () => {
+            try {
+                const serverType = await detectServerType(currentServer);
+                // Show/hide tabs depending on server type
+                const modsTab = document.querySelector('.tab[data-view="mods"]');
+                const pluginsTab = document.querySelector('.tab[data-view="plugins"]');
+                if (modsTab) modsTab.style.display = (serverType === 'paper') ? 'none' : '';
+                if (pluginsTab) pluginsTab.style.display = (['forge','fabric','neoforge','quilt'].includes(serverType)) ? 'none' : '';
+            } catch (e) { console.warn('Erreur recuperation config:', e); }
+        })();
+    }
 
     const html = document.documentElement;
 
@@ -1435,11 +1630,11 @@ function applyVisualSettings() {
 
     // Shader
 
-    html.removeAttribute('data-shader');
+    delete html.dataset.shader;
 
     if (visualSettings.shader !== 'none') {
 
-        html.setAttribute('data-shader', visualSettings.shader);
+        html.dataset.shader = visualSettings.shader;
 
     }
 
@@ -1447,17 +1642,17 @@ function applyVisualSettings() {
 
     // Fullbright
 
-    html.setAttribute('data-fullbright', visualSettings.fullbright);
+    html.dataset.fullbright = String(visualSettings.fullbright);
 
 
 
     // Upscaling
 
-    html.removeAttribute('data-upscaling');
+    delete html.dataset.upscaling;
 
     if (visualSettings.upscaling !== 'off') {
 
-        html.setAttribute('data-upscaling', visualSettings.upscaling);
+        html.dataset.upscaling = visualSettings.upscaling;
 
     }
 
@@ -1493,12 +1688,25 @@ function updateVisualUI() {
 
 
 
-    // Fullbright toggle
+    // Fullbright toggle (synchronize all toggles)
+    document.querySelectorAll('.fullbright-toggle').forEach(el => { el.checked = visualSettings.fullbright; });
 
-    const fullbrightToggle = document.getElementById('fullbright-toggle');
+}
 
-    if (fullbrightToggle) fullbrightToggle.checked = visualSettings.fullbright;
 
+function loadVisualSettings() {
+    try {
+        const saved = localStorage.getItem('mcpanel_visual_settings');
+        if (saved) Object.assign(visualSettings, JSON.parse(saved));
+    } catch (e) { console.warn('loadVisualSettings failed', e); }
+    // Apply and update UI
+    try { applyVisualSettings(); } catch (e) { console.warn('applyVisualSettings in loadVisualSettings failed', e); }
+    try { updateVisualUI(); } catch (e) { console.warn('updateVisualUI in loadVisualSettings failed', e); }
+}
+
+function saveVisualSettings() {
+    try { localStorage.setItem('mcpanel_visual_settings', JSON.stringify(visualSettings)); } catch (e) { console.warn('saveVisualSettings failed', e); }
+    try { applyVisualSettings(); } catch (e) { console.warn('applyVisualSettings in saveVisualSettings failed', e); }
 }
 
 
@@ -1613,19 +1821,10 @@ function initVisualEffectsControls() {
 
 
 
-    // Fullbright toggle
-
-    const fullbrightToggle = document.getElementById('fullbright-toggle');
-
-    if (fullbrightToggle) {
-
-        fullbrightToggle.addEventListener('change', (e) => {
-
-            toggleFullbright(e.target.checked);
-
-        });
-
-    }
+    // Fullbright toggle (handle all toggles)
+    document.querySelectorAll('.fullbright-toggle').forEach(el => {
+        el.addEventListener('change', (e) => { toggleFullbright(e.target.checked); });
+    });
 
 
 
@@ -1721,7 +1920,7 @@ function applyPerformanceMode() {
 
     // Supprimer les anciens modes
 
-    html.removeAttribute('data-perf');
+    delete html.dataset.perf;
 
 
 
@@ -1729,11 +1928,11 @@ function applyPerformanceMode() {
 
     if (!performanceSettings.gpuEnabled) {
 
-        html.setAttribute('data-perf', 'no-gpu');
+        html.dataset.perf = 'no-gpu';
 
     } else {
 
-        html.setAttribute('data-perf', performanceSettings.mode);
+        html.dataset.perf = performanceSettings.mode;
 
     }
 
@@ -1854,9 +2053,7 @@ const API_TIMEOUT = 30000; // 30 secondes
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// Correction 3: Queue de requêtes pour éviter les surcharges
-const requestQueue = [];
-let isProcessingQueue = false;
+// Correction 3: Queue de requêtes pour éviter les surcharges (no-op queue removed)
 
 // Correction 4: Statistiques de requêtes
 const apiStats = {
@@ -2068,7 +2265,7 @@ function sleep(ms) {
 function handleSessionExpired() {
     showToast('Session expirée, reconnexion...', 'warning');
     setTimeout(() => {
-        window.location.href = '/login';
+        globalThis.location.href = '/login';
     }, 2000);
 }
 
@@ -2169,26 +2366,18 @@ function escapeHtml(unsafe) {
         .replace(/'/g, '&#039;');
 }
 
-// Correction 22: Format bytes
-function formatBytes(bytes, decimals = 2) {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+// Escape for HTML attributes (single/double quoted)
+function escapeHtmlAttr(unsafe) {
+    if (typeof unsafe !== 'string') return unsafe;
+    return unsafe
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
-// Correction 23: Format duration
-function formatDuration(seconds) {
-    if (!seconds || seconds < 0) return '0s';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-}
+// Use canonical formatBytes/formatDuration implementations defined earlier to avoid duplicates
 
 // Correction 24: Parse server response safely
 function safeParseJson(text) {
@@ -2313,7 +2502,7 @@ async function copyToClipboard(text) {
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
-        document.body.removeChild(textarea);
+        if (typeof textarea.remove === 'function') textarea.remove(); else document.body.removeChild(textarea);
         showToast('Copié!', 'success');
         return true;
     } catch (e) {
@@ -2343,8 +2532,8 @@ function isInViewport(el) {
     return (
         rect.top >= 0 &&
         rect.left >= 0 &&
-        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+        rect.bottom <= (globalThis.innerHeight || document.documentElement.clientHeight) &&
+            rect.right <= (globalThis.innerWidth || document.documentElement.clientWidth)
     );
 }
 
@@ -2463,25 +2652,25 @@ async function safeExecute(fn, errorMessage = 'Une erreur est survenue') {
 
 // Correction 39: URL parameter helpers
 function getUrlParam(name) {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(globalThis.location.search);
     return params.get(name);
 }
 
 function setUrlParam(name, value) {
-    const url = new URL(window.location.href);
+    const url = new URL(globalThis.location.href);
     if (value === null || value === undefined) {
         url.searchParams.delete(name);
     } else {
         url.searchParams.set(name, value);
     }
-    window.history.replaceState({}, '', url.toString());
+    globalThis.history.replaceState({}, '', url.toString());
 }
 
 // Correction 40: Date formatting
 function formatDate(date, format = 'short') {
     if (!date) return '-';
     const d = new Date(date);
-    if (isNaN(d.getTime())) return '-';
+    if (Number.isNaN(d.getTime())) return '-';
 
     if (format === 'short') return d.toLocaleDateString('fr-FR');
     if (format === 'long') return d.toLocaleDateString('fr-FR', {
@@ -2599,7 +2788,7 @@ const perfMonitor = {
 // Correction 49: Browser feature detection
 const browserFeatures = {
     clipboard: !!navigator.clipboard,
-    notifications: 'Notification' in window,
+    notifications: 'Notification' in globalThis,
     localStorage: (() => {
         try { localStorage.setItem('test', 'test'); localStorage.removeItem('test'); return true; }
         catch (e) { return false; }
@@ -2607,32 +2796,62 @@ const browserFeatures = {
     webgl: (() => {
         try {
             const canvas = document.createElement('canvas');
-            return !!(window.WebGLRenderingContext && canvas.getContext('webgl'));
+            return !!(globalThis.WebGLRenderingContext && canvas.getContext('webgl'));
         } catch (e) { return false; }
     })(),
-    touch: 'ontouchstart' in window
+    touch: 'ontouchstart' in globalThis
 };
 
 // Correction 50: Global error handler amélioré
-window.onerror = function (message, source, lineno, colno, error) {
+globalThis.onerror = function (message, source, lineno, colno, error) {
+    // Ignore noisy extension errors (e.g., passkeys-inject) that are not actionable
+    try {
+        const msg = String((error && error.message) || message || '');
+        if (msg.includes('Could not establish connection. Receiving end does not exist')) {
+            console.debug('Ignored extension error:', msg);
+            return false; // suppress default handling
+        }
+    } catch (e) {}
     console.error('Global error:', { message, source, lineno, colno, error });
     sessionStats.errors++;
 
     // Ne pas afficher les erreurs de ressources externes
-    if (source && !source.includes(window.location.hostname)) return;
+    try {
+        if (source && !source.includes(globalThis.location.hostname)) return;
+    } catch (e) { console.warn('onerror host check failed', e); }
 
-    showToast('Une erreur JavaScript est survenue', 'error');
+    try { showToast('Une erreur JavaScript est survenue', 'error'); } catch (e) { console.warn('showToast in onerror failed', e); }
     return false;
 };
 
-window.onunhandledrejection = function (event) {
+globalThis.onunhandledrejection = function (event) {
+    try {
+        const msg = String(event.reason?.message || event.reason || '');
+        if (msg.includes('Could not establish connection. Receiving end does not exist')) {
+            // Likely a browser extension (passkeys) trying to message background script; ignore
+            console.debug('Ignored known extension error:', msg);
+            return;
+        }
+    } catch (e) { /* ignore checking errors */ }
     console.error('Unhandled promise rejection:', event.reason);
     sessionStats.errors++;
 };
 
+// Early-capture handler to suppress noisy extension unhandled rejections
+window.addEventListener('unhandledrejection', (ev) => {
+    try {
+        const msg = String(ev.reason?.message || ev.reason || '');
+        if (msg.includes('Could not establish connection. Receiving end does not exist')) {
+            ev.preventDefault();
+            try { ev.stopImmediatePropagation(); } catch (e) {}
+            console.debug('Suppressed extension unhandled rejection:', msg);
+        }
+    } catch (e) {}
+}, true);
+
 // Init
 
-window.addEventListener('DOMContentLoaded', async () => {
+globalThis.addEventListener('DOMContentLoaded', async () => {
     // Amélioration Sécurité 15: Initialiser le token CSRF en premier
     await ensureCsrfToken();
     
@@ -2648,7 +2867,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     requestNotificationPermission();
 
     await checkAuth();
-    loadTheme();
+    try {
+        loadTheme();
+    } catch (e) {
+        console.warn('Erreur lors de loadTheme():', e);
+    }
 
     // Initialiser les contrôles d'effets visuels
     initVisualEffectsControls();
@@ -2688,7 +2911,7 @@ async function checkAuth() {
 
         if (response.status === 401) {
 
-            window.location.href = '/login';
+            globalThis.location.href = '/login';
 
             return;
 
@@ -2744,33 +2967,38 @@ function updateUserUI() {
 
 async function logout() {
 
-    window.location.href = '/logout';
+    globalThis.location.href = '/logout';
 
-}
+    // Ensure CSRF token is fresh
+    await ensureCsrfToken();
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    formData.append('path', currentFilePath);
+    const csrf = getCsrfToken();
+    if (!csrf) { showToast('error', 'CSRF token manquant'); return; }
+    formData.append('csrf_token', csrf);
 
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/upload`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-CSRF-Token': csrf }
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', "Fichiers uploadés");
+            loadFiles('');
+        } else {
+            showToast('error', data.message);
+        }
+    } catch (e) {
+        console.error('Erreur upload files:', e);
+        showToast('error', "Erreur upload");
+    }
 
-
-// ================================
-
-// THEME
-
-// ================================
-
-
-
-function loadTheme() {
-
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-
-    setTheme(savedTheme);
-
-}
-
-
-
-function setTheme(theme) {
-
-    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.dataset.theme = theme;
 
     localStorage.setItem('theme', theme);
 
@@ -2816,6 +3044,23 @@ function showSection(sectionName) {
 
 }
 
+// Expose to global scope for inline onclick handlers
+globalThis.__real_showSection = showSection;
+globalThis.showSection = function(sectionName) {
+    // if real is ready, call it and flush queued calls
+    if (typeof globalThis.__real_showSection === 'function') {
+        const res = globalThis.__real_showSection(sectionName);
+        if (Array.isArray(globalThis.__queuedShowSection) && globalThis.__queuedShowSection.length > 0) {
+            globalThis.__queuedShowSection.forEach(s => { try { globalThis.__real_showSection(s); } catch (e){ console.warn('flushing queued showSection failed', e); } });
+            globalThis.__queuedShowSection = [];
+        }
+        return res;
+    }
+    // otherwise queue it
+    globalThis.__queuedShowSection = globalThis.__queuedShowSection || [];
+    globalThis.__queuedShowSection.push(sectionName);
+};
+
 
 
 function openSettings() {
@@ -2824,6 +3069,28 @@ function openSettings() {
         modal.style.display = 'block';
         loadNotificationConfig();
     }
+}
+
+// Generic helper for uploading mods (used by UI if implemented)
+async function uploadModFile(file) {
+    if (!currentServer || !file) return;
+    if (!file.name.endsWith('.jar')) { showToast('error', 'Le fichier doit être un .jar'); return; }
+    await ensureCsrfToken();
+    const formData = new FormData();
+    formData.append('mod', file);
+    const csrf = getCsrfToken();
+    if (csrf) formData.append('csrf_token', csrf);
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/mods/upload`, { method: 'POST', body: formData, headers: { 'X-CSRF-Token': csrf } });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', data.message || 'Mod uploadé');
+            try { await refreshInstalledMods(); } catch (e) { console.warn('refreshInstalledMods after upload failed', e); }
+            try { setServerModeUI(true); } catch (e) {}
+            try { switchTab('mods'); } catch (e) {}
+            try { if (document.querySelector('.tab.active')?.dataset?.view === 'mods') loadModsForCurrentServer(''); } catch (e) {}
+        } else showToast('error', data.message || 'Erreur upload mod');
+    } catch (e) { console.error('Erreur upload mod:', e); showToast('error', 'Erreur upload mod'); }
 }
 
 function closeSettings() {
@@ -2839,7 +3106,8 @@ async function loadNotificationConfig() {
 
         if (config.discord) {
             document.getElementById('discord-enabled').checked = config.discord.enabled;
-            document.getElementById('discord-webhook').value = config.discord.webhook_url || '';
+            if (document.getElementById('discord-webhook')) document.getElementById('discord-webhook').value = config.discord.webhook_url || '';
+            if (document.getElementById('discord-webhook-settings')) document.getElementById('discord-webhook-settings').value = config.discord.webhook_url || '';
         }
     } catch (e) {
         console.error("Error loading notification config", e);
@@ -2889,6 +3157,23 @@ async function testDiscordWebhook() {
     }
 }
 
+async function testDiscordSettings() {
+    const webhook = document.getElementById('discord-webhook-settings')?.value?.trim();
+    if (!webhook) { showToast('error', 'Entrez une URL de webhook'); return; }
+    try {
+        showToast('info', "Test en cours...");
+        const res = await apiFetch('/api/notifications/test/discord', {
+            method: 'POST',
+            body: JSON.stringify({ webhook_url: webhook })
+        });
+        const data = await res.json();
+        if (data.success) showToast('success', "Test réussi !");
+        else showToast('error', data.message);
+    } catch (e) {
+        showToast('error', "Erreur Test");
+    }
+}
+
 
 
 // ================================
@@ -2902,13 +3187,14 @@ async function testDiscordWebhook() {
 let metricsLoaded = false;
 
 let lastMetricsUpdate = 0;
+let metricsHistoryLimit = 300;
 
 
 
 function startMetricsPolling() {
 
     loadSystemMetrics();
-    loadMetricsHistory(); // Load historical data on start
+    loadMetricsHistory(metricsHistoryLimit); 
 
     // Utilise l'intervalle défini par les paramètres de performance
 
@@ -2916,21 +3202,24 @@ function startMetricsPolling() {
 
 }
 
-async function loadMetricsHistory() {
+async function loadMetricsHistory(limit = metricsHistoryLimit) {
     try {
-        const res = await apiFetch('/api/system/history?limit=60');
-        const data = await res.json();
+        console.debug('loadMetricsHistory requesting limit=', limit);
+        const res = await apiFetch(`/api/metrics/history?limit=${encodeURIComponent(limit)}`);
+        const payload = await res.json();
+        const history = (payload && (payload.data || payload.history)) || [];
 
-        if (data.history) {
+        if (Array.isArray(history)) {
             metricsHistory.timestamps = [];
             metricsHistory.cpu = [];
             metricsHistory.ram = [];
 
-            data.history.forEach(point => {
-                const time = new Date(point.timestamp).toLocaleTimeString();
+            console.debug('loadMetricsHistory returned', history.length, 'points');
+            history.forEach(point => {
+                const time = point.timestamp ? new Date(point.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
                 metricsHistory.timestamps.push(time);
-                metricsHistory.cpu.push(point.cpu);
-                metricsHistory.ram.push(point.ram_percent);
+                metricsHistory.cpu.push(typeof point.cpu === 'number' ? point.cpu : 0);
+                metricsHistory.ram.push(typeof point.ram_percent === 'number' ? point.ram_percent : (typeof point.ram === 'number' ? point.ram : 0));
             });
             updateMainChart();
         }
@@ -2938,6 +3227,32 @@ async function loadMetricsHistory() {
         console.error("Failed to load metrics history", e);
     }
 }
+
+/**
+ * Change la période d'affichage du graphique principal.
+ * Appelée depuis l'attribut `onchange` dans le template (`#chart-period`).
+ */
+function updateChartPeriod(value) {
+    console.debug('updateChartPeriod called with', value);
+    const v = Number(value) || 60;
+    metricsHistoryLimit = v;
+    performanceSettings.chartPoints = Math.max(10, Math.min(1000, v));
+    try { const sel = document.getElementById('chart-period'); if (sel) sel.value = String(v); } catch (e) {}
+    loadMetricsHistory(metricsHistoryLimit);
+    try { showToast('info', `Période graphique changée: ${v} points`); } catch (e) {}
+    try { loadSystemMetrics(); } catch (e) { console.warn('loadSystemMetrics failed after period change', e); }
+}
+window.updateChartPeriod = updateChartPeriod;
+
+(function attachChartPeriodListener(){
+    const attach = (sel) => sel && sel.addEventListener('change', e => updateChartPeriod(e.target.value));
+    const sel = document.getElementById('chart-period');
+    if (sel) attach(sel);
+    else document.addEventListener('DOMContentLoaded', () => {
+        const sel2 = document.getElementById('chart-period');
+        if (sel2) attach(sel2);
+    });
+})();
 
 
 
@@ -3254,34 +3569,8 @@ async function loadServerList(forceRefresh = false) {
         lastServerList = servers;
 
 
-
-        // Sidebar - toujours mettre a jour car leger
-
-        const serverList = document.getElementById('server-list');
-
-        if (serverList && serversChanged) {
-
-            if (servers.length === 0) {
-
-                serverList.innerHTML = '<p class="no-servers">Aucun serveur</p>';
-
-            } else {
-
-                serverList.innerHTML = servers.map(server => `
-
-                    <div class="server-item ${currentServer === server ? 'active' : ''}" onclick="selectServer('${server}')">
-
-                        <i class="fas fa-server"></i>
-
-                        <span>${server}</span>
-
-                    </div>
-
-                `).join('');
-
-            }
-
-        }
+        // Rien à créer ici — la création de serveur est gérée par `createServer()`.
+        // Cette fonction se contente de récupérer et d'afficher la liste des serveurs.
 
 
 
@@ -3305,6 +3594,20 @@ async function loadServerList(forceRefresh = false) {
 
             }
 
+        }
+
+
+        // Sidebar server list - seulement si change
+        const serverListEl = document.getElementById('server-list');
+        if (serverListEl && serversChanged) {
+            if (servers.length === 0) {
+                serverListEl.innerHTML = '<p class="empty-message">Aucun serveur.</p>';
+            } else {
+                serverListEl.innerHTML = servers.map(server => {
+                    const safe = (''+server).replace(/'/g, "\\'");
+                    return `<div class="server-item" onclick="selectServer('${safe}')"><i class="fas fa-server"></i><span>${escapeHtml(server)}</span></div>`;
+                }).join('');
+            }
         }
 
 
@@ -3399,7 +3702,7 @@ async function updateAllServerStatuses(servers) {
 
             }
 
-        } catch (e) { }
+        } catch (e) { console.warn('update server card status failed', server, e); }
 
     }
 
@@ -3437,7 +3740,9 @@ function selectServer(serverName) {
 
     updateServerAddressDisplay(serverName, '25565');
 
-
+    try {
+        reloadServerIcon(serverName);
+    } catch (e) { console.warn('selectServer: reloadServerIcon failed', e); }
 
     document.querySelectorAll('.server-item').forEach(item => {
 
@@ -3448,6 +3753,182 @@ function selectServer(serverName) {
 
 
     updateStatus();
+
+    // Fetch server config to set loader/version context and adapt tabs
+    (async () => {
+        // Lock map to prevent race overwrites: serverName -> timestamp until which detection is locked
+        // Use globalThis to avoid temporal-dead-zone when this block is entered multiple times
+        const __serverContextLocks = (globalThis.__serverContextLocks = globalThis.__serverContextLocks || {});
+
+        async function applyServerConfigContext(serverName, config, authoritative = false) {
+            try {
+                const now = Date.now();
+                // If not authoritative and we are locked, skip applying to avoid overwrite
+                if (!authoritative && __serverContextLocks[serverName] && now < __serverContextLocks[serverName]) {
+                    console.debug('applyServerConfigContext: skip due to active lock', serverName, { now, lockUntil: __serverContextLocks[serverName] });
+                    return;
+                }
+                // If authoritative, set a short lock period to avoid races
+                if (authoritative) __serverContextLocks[serverName] = now + 10000; // 10s
+
+                // Détection robuste du type de serveur (prefer explicit config when present)
+                let serverType = (config && (config.server_type || config.serverType)) || null;
+                // Only override version if present in config (do not null out existing value)
+                if (config && (config.version || config.mc_version)) currentServerMcVersion = config.version || config.mc_version || currentServerMcVersion;
+
+                // Si le type n'est pas stocké, essayer via plugins/mods installés
+                if (!serverType) {
+                    try {
+                        const pluginsResp = await apiFetch(`/api/server/${serverName}/plugins/installed`);
+                        const plugins = await pluginsResp.json();
+                        if (Array.isArray(plugins) && plugins.length > 0) {
+                            serverType = 'paper';
+                        }
+                    } catch (e) { console.warn('serverConfig: failed to check installed plugins for', serverName, e); }
+                }
+
+                if (!serverType || serverType === 'paper') {
+                    try {
+                        const modsResp = await apiFetch(`/api/server/${serverName}/mods`);
+                        const modsData = await modsResp.json();
+                        const mods = modsData.mods || modsData || [];
+                        if (Array.isArray(mods) && mods.length > 0) {
+                            // Déduire par config
+                            if (config.forge_version) serverType = 'forge';
+                            else if (config.loader_version || config.server_type === 'fabric') serverType = 'fabric';
+                            else serverType = 'fabric'; // Si on a des mods mais pas de config forge, c'est probablement fabric
+                        }
+                    } catch (e) { console.warn('serverConfig: failed to check installed mods for', serverName, e); }
+                }
+
+                // Fallback si le nom contient "fabric"
+                if (serverName.toLowerCase().includes('fabric') && serverType === 'paper') {
+                    serverType = 'fabric';
+                }
+
+                // Fallback final
+                if (!serverType) serverType = 'paper';
+
+                // If the config explicitly provides server_type or loader_version, prefer it
+                if (config && config.server_type) {
+                    serverType = config.server_type;
+                }
+                if (serverType === 'forge') currentServerLoader = 'forge';
+                else if (serverType === 'fabric') currentServerLoader = 'fabric';
+                else if (serverType === 'neoforge') currentServerLoader = 'neoforge';
+                else if (serverType === 'quilt') currentServerLoader = 'quilt';
+                else if (serverType === 'paper') currentServerLoader = null;
+                // If serverType is still null and not authoritative, do not force it to paper here
+                if (!serverType && !authoritative) {
+                    console.debug('applyServerConfigContext: leaving type unset (non-authoritative)');
+                }
+                // Also prefer explicit loader_version / forge_version for completeness
+                if (config && config.loader_version) currentServerLoader = 'fabric';
+
+                console.log('Server context updated:', { serverName, serverType, currentServerLoader, currentServerMcVersion });
+
+                const modsTab = document.querySelector('.tab[data-view="mods"]');
+                const pluginsTab = document.querySelector('.tab[data-view="plugins"]');
+                // If authoritative, enforce tab visibility strictly; otherwise only show probable tabs
+                if (modsTab) modsTab.style.display = (serverType && serverType !== 'paper') ? '' : (authoritative ? 'none' : modsTab.style.display);
+                if (pluginsTab) pluginsTab.style.display = (serverType === 'paper') ? '' : (authoritative ? 'none' : pluginsTab.style.display);
+
+                const activeTab = document.querySelector('.tab.active')?.dataset?.view;
+                if (activeTab === 'mods') loadModsForCurrentServer('');
+
+            } catch (e) { console.warn('applyServerConfigContext failed', e); }
+        }
+
+        try {
+            const r = await apiFetch(`/api/server/${serverName}/config`);
+            const config = await r.json();
+            console.debug('selectServer: initial config (type, keys):', typeof config, Object.keys(config || {}), config);
+            // Do not apply initial (possibly incomplete) context yet to avoid UI flicker.
+            // Wait for authoritative fresh config and manager_config.json fallback below before applying context.
+
+            // Use authoritative config from server and ensure UI is synced: re-fetch and re-apply (cache-busted)
+            try {
+                const cfgRes = await apiFetch(`/api/server/${serverName}/config?t=${Date.now()}`);
+                const cfgFresh = await cfgRes.json();
+                console.debug('selectServer: fetched config (fresh):', typeof cfgFresh, Object.keys(cfgFresh || {}), cfgFresh);
+                populateServerMetaUI(cfgFresh);
+                // If the config lacks explicit server_type/version, try reading manager_config.json directly
+                if ((!cfgFresh || !cfgFresh.server_type || !cfgFresh.version) && currentServer) {
+                    try {
+                        console.debug('selectServer: config missing server_type/version, trying to read manager_config.json');
+                        const mf = await apiFetch(`/api/server/${encodeURIComponent(serverName)}/files/read?path=manager_config.json`);
+                        const mfj = await mf.json();
+                        if (mfj && mfj.status === 'success' && mfj.content) {
+                            try {
+                                const parsed = JSON.parse(mfj.content);
+                                console.debug('selectServer: manager_config.json parsed', parsed);
+                                // Merge parsed into cfgFresh for UI
+                                const merged = Object.assign({}, cfgFresh || {}, parsed || {});
+                                populateServerMetaUI(merged);
+                                        // Save last fetched merged config for manual application by the user
+                                        (globalThis._lastServerConfigFetched = globalThis._lastServerConfigFetched || {})[serverName] = merged;
+                                        try { const btn = document.getElementById('btn-apply-server-meta'); if (btn) btn.disabled = false; } catch (e) {}
+                                        showToast('info', 'Méthode: méta récupérée depuis manager_config.json — pressez "Mettre à jour" pour appliquer');
+                            } catch (e) {
+                                console.warn('selectServer: manager_config.json parse failed', e);
+                            }
+                        } else {
+                            console.warn('selectServer: manager_config.json not found or empty', mfj);
+                        }
+                    } catch (e) { console.warn('selectServer: failed reading manager_config.json', e); }
+                }
+                // display debug info in UI for easier diagnosis
+                try {
+                    const dbg = document.getElementById('server-config-debug');
+                    if (dbg) {
+                        dbg.style.display = 'block';
+
+                        try {
+                            const jsonPre = dbg.querySelector('.server-config-json');
+                            if (jsonPre) {
+                                // Create rows for well-known keys and present them nicely
+                                const rows = [];
+                                const add = (k, v, icon) => rows.push(`<div style=\"display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.02)\"><div style=\"width:28px;text-align:center;color:#94a3b8\">${icon||'•'}</div><div style=\"flex:1;color:#cbd5e1\"><div style=\"font-size:0.85em;color:#9fb4d4\">${escapeHtml(k)}</div><div style=\"font-weight:600;color:#e6eef8\">${escapeHtml(String(v === undefined || v === null ? '—' : v))}</div></div></div>`);
+                                add('Max joueurs', cfgFresh['max-players'] || cfgFresh['max_players'] || '—', '<i class="fas fa-users" style="color:#94a3b8"></i>');
+                                add('Port', cfgFresh['server-port'] || cfgFresh['port'] || '—', '<i class="fas fa-network-wired" style="color:#94a3b8"></i>');
+                                // Fetch installed mods count asynchronously
+                                try {
+                                    (async () => {
+                                        try {
+                                            const modsResp = await apiFetch(`/api/server/${encodeURIComponent(serverName)}/mods`);
+                                            const modsData = await modsResp.json();
+                                            const mods = modsData.mods || modsData || [];
+                                            add('Mods installés', Array.isArray(mods) ? mods.length : '—', '<i class="fas fa-cubes" style="color:#94a3b8"></i>');
+                                            jsonPre.innerHTML = rows.join('') + `<div style=\"display:flex;gap:8px;justify-content:flex-end;margin-top:8px\">`;
+                                        } catch (e) {
+                                            jsonPre.innerHTML = rows.join('') + `<div style=\"display:flex;gap:8px;justify-content:flex-end;margin-top:8px\">`;
+                                        }
+                                    })();
+                                } catch (e) {
+                                    jsonPre.innerHTML = rows.join('') + `<div style=\"display:flex;gap:8px;justify-content:flex-end;margin-top:8px\">`;
+                                }
+                            }
+                        } catch (e) {}
+                    }
+                } catch (e) {}
+                await applyServerConfigContext(serverName, cfgFresh);
+                // Inform user if mismatch
+                if ((cfgFresh.server_type === 'fabric' || cfgFresh.loader_version || cfgFresh.forge_version) && (currentServerLoader === null || currentServerLoader === 'paper')) {
+                    showToast('warning', 'Attention: la configuration indique un serveur moddé, mais le système le détecte comme Paper — je force l\'affichage.');
+                }
+                // Warn if config clearly says modded but detection ended up paper
+                if ((cfgFresh.server_type === 'fabric' || cfgFresh.loader_version || cfgFresh.forge_version) && (currentServerLoader === null || currentServerLoader === 'paper')) {
+                    console.warn('selectServer: config indicates modded server but detected as paper', { cfgFresh, currentServerLoader });
+                }
+                // Store the authoritative config for possible manual apply
+                (globalThis._lastServerConfigFetched = globalThis._lastServerConfigFetched || {})[serverName] = cfgFresh;
+                try { const btn = document.getElementById('btn-apply-server-meta'); if (btn) btn.disabled = false; } catch (e) {}
+            } catch (e) {
+                console.warn('selectServer: failed to re-fetch config for UI sync', e);
+                populateServerMetaUI(config);
+            }
+        } catch (e) { console.warn('Erreur recuperation config:', e); }
+    })();
 
     startStatusPolling();
 
@@ -3513,78 +3994,419 @@ function stopStatusPolling() {
 
 }
 
-
-
+// Fetch and update server status UI for the currently selected server
 async function updateStatus() {
-
     if (!currentServer) return;
-
     try {
-
         const response = await apiFetch(`/api/server/${currentServer}/status`);
-
         const status = await response.json();
 
-
-
         const badge = document.getElementById('detail-status');
-
         const statusText = document.getElementById('detail-status-text');
-
         const startBtn = document.getElementById('btn-start');
-
         const stopBtn = document.getElementById('btn-stop');
-
         const restartBtn = document.getElementById('btn-restart');
 
-
-
         if (status.running) {
-
             if (badge) badge.className = 'status-badge online';
-
             if (statusText) statusText.textContent = 'EN LIGNE';
-
             if (startBtn) startBtn.style.display = 'none';
-
             if (stopBtn) stopBtn.style.display = 'flex';
-
             if (restartBtn) restartBtn.disabled = false;
-
             updateElement('stat-cpu', (status.cpu || 0).toFixed(1) + '%');
-
             updateElement('stat-ram', (status.ram_mb || 0) + ' MB');
-
             updateElement('stat-players', status.players || '0');
-
             updateElement('stat-tps', status.tps || '20.0');
-
         } else {
-
             if (badge) badge.className = 'status-badge offline';
-
             if (statusText) statusText.textContent = 'HORS LIGNE';
-
             if (startBtn) startBtn.style.display = 'flex';
-
             if (stopBtn) stopBtn.style.display = 'none';
-
             if (restartBtn) restartBtn.disabled = true;
-
             updateElement('stat-cpu', '0%');
-
             updateElement('stat-ram', '0 MB');
-
             updateElement('stat-players', '0');
-
             updateElement('stat-tps', '0');
-
         }
-
-    } catch (error) { console.error('Erreur statut:', error); }
-
+    } catch (error) {
+        console.error('Erreur statut:', error);
+    }
 }
 
+
+
+async function searchModsAdmin() {
+    const query = document.getElementById('mods-search-input-panel')?.value;
+    const container = document.getElementById('mods-results-container');
+
+    if (!query) return;
+
+    if (container) container.innerHTML = '<div class="loader"></div>';
+
+    try {
+        const res = await apiFetch(`/api/mods/search`, {
+            method: 'POST',
+            body: JSON.stringify({ query: query, limit: 10 })
+        });
+        const data = await res.json();
+
+        if (container) container.innerHTML = '';
+
+        if (Array.isArray(data.hits)) {
+            data.hits.forEach(mod => {
+                const row = document.createElement('div');
+                row.className = 'mod-row';
+                row.innerHTML = `<div class="mod-left"><img src="${mod.icon_url || '/static/img/default_icon.svg'}" style="width:48px;height:48px;border-radius:4px;margin-right:10px"></div><div class="mod-body"><strong>${escapeHtml(mod.name)}</strong><div class="muted">${escapeHtml(mod.slug)}</div></div><div class="mod-actions"><button class="btn-sm" onclick="installMod('${mod.slug}')">Installer</button></div>`;
+                container.appendChild(row);
+            });
+        } else {
+            if (container) container.innerHTML = '<p class="text-muted">Aucun resultats</p>';
+        }
+    } catch (e) {
+        if (container) container.innerHTML = '<p class="text-error">Erreur</p>';
+    }
+}
+
+// Load mods for the currently selected server (uses currentServerLoader and currentServerMcVersion)
+async function loadModsForCurrentServer(query) {
+    let container = document.getElementById('mods-results-container');
+    console.debug('loadModsForCurrentServer called', { currentServer, currentServerLoader, currentServerMcVersion, query });
+    // Defensive: recreate search box and container if missing (DOM may be altered)
+    try {
+        const view = document.getElementById('view-mods');
+        if (view && !view.querySelector('.search-box')) {
+            const header = document.createElement('div');
+            header.className = 'search-box';
+            header.innerHTML = `
+                <input type="text" id="mods-search-input-panel" placeholder="Rechercher un mod..." onkeyup="if(event.key === 'Enter') searchMods(this.value)">
+                <button class="btn-primary" onclick="searchModsAdmin()"><i class="fas fa-search"></i></button>
+            `;
+            const firstChild = view.querySelector('.card-header') || view.firstChild;
+            if (firstChild && firstChild.parentNode) firstChild.parentNode.insertBefore(header, firstChild.nextSibling);
+        }
+        if (!container) {
+            const view = document.getElementById('view-mods');
+            if (view) {
+                const c = document.createElement('div');
+                c.id = 'mods-results-container';
+                c.className = 'settings-grid';
+                c.style = 'margin-top:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:15px;';
+                view.appendChild(c);
+            }
+        }
+    } catch (e) { console.warn('loadModsForCurrentServer: defensive DOM repair failed', e); }
+        // refresh reference in case we created it
+        container = document.getElementById('mods-results-container');
+        if (!container) return;
+    if (!container) return;
+    container.innerHTML = '<div class="loader"></div>';
+    // If no server selected, show a global mods manager with server selector
+    if (!currentServer) {
+        container.innerHTML = '<div class="loader"></div>'; // keep loader while fetching servers
+        try {
+            // Fetch available servers for selection
+            const r = await apiFetch('/api/servers');
+            const servers = await r.json() || [];
+            let html = `
+                <div class="mods-global-header" style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+                    <select id="mods-target-server" style="min-width:220px"><option value="">-- Sélectionner un serveur (optionnel) --</option>${servers.map(s=>`<option value="${s}">${escapeHtml(s)}</option>`).join('')}</select>
+                    <input id="mods-global-search" type="text" placeholder="Rechercher un mod..." style="flex:1" />
+                    <button class="btn-primary" id="mods-global-search-btn">Rechercher</button>
+                    <button class="btn-secondary" id="mods-global-refresh-btn">Rafraîchir</button>
+                </div>
+                <div id="mods-global-results" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:15px"></div>
+            `;
+            container.innerHTML = html;
+
+            const searchInput = document.getElementById('mods-global-search');
+            document.getElementById('mods-global-search-btn').addEventListener('click', () => loadGlobalMods(searchInput.value || ''));
+            document.getElementById('mods-global-refresh-btn').addEventListener('click', () => loadGlobalMods(searchInput.value || ''));
+            document.getElementById('mods-target-server').addEventListener('change', () => loadGlobalMods(searchInput.value || ''));
+
+            // initial load
+            await loadGlobalMods(query || '');
+        } catch (e) {
+            console.error('Erreur loading global mods manager:', e);
+            container.innerHTML = '<p class="text-error">Erreur</p>';
+        }
+        return;
+    }
+
+    try {
+        const q = query || '';
+        const loader = currentServerLoader || '';
+        const version = currentServerMcVersion || '';
+        const resp = await apiFetch(`/api/mods/search?q=${encodeURIComponent(q)}&loader=${encodeURIComponent(loader)}&version=${encodeURIComponent(version)}`);
+        const data = await resp.json();
+        let hits = data.results || data.result || data.hits || [];
+        console.debug('mods search response', { loader, version, q, resultKeys: Object.keys(data || {}), hitsCount: Array.isArray(hits) ? hits.length : 0 });
+
+        // If no search hits, fall back to popular mods for the loader/version
+        if (!Array.isArray(hits) || hits.length === 0) {
+            try {
+                const pop = await apiFetch(`/api/mods/popular?loader=${encodeURIComponent(loader)}&version=${encodeURIComponent(version)}&limit=30`);
+                const popData = await pop.json();
+                hits = popData.results || popData.result || popData.hits || [];
+                console.debug('mods popular fallback response', { loader, version, resultKeys: Object.keys(popData || {}), hitsCount: Array.isArray(hits) ? hits.length : 0 });
+                if (Array.isArray(hits) && hits.length > 0) {
+                    // prepend a small notice
+                    container.innerHTML = '<p class="muted">Aucun résultat direct — affichage des mods populaires pour ce loader.</p>';
+                }
+            } catch (e) { console.warn('fallback to popular mods failed', e); }
+        }
+
+        if (!Array.isArray(hits) || hits.length === 0) {
+            container.innerHTML = '<p class="text-muted">Aucun mod trouvé</p>';
+            return;
+        }
+
+        // If server is Fabric (or has mods installed), provide an upload zone and installed mods list
+        let html = '';
+        // Ensure we check for 'fabric' loader correctly; but also treat servers with installed mods as 'fabric manager' capable
+        let isFabric = (loader === 'fabric' || currentServerLoader === 'fabric');
+        if (!isFabric) {
+            try {
+                const probe = await apiFetch(`/api/server/${currentServer}/mods`);
+                const probeData = await probe.json();
+                const probeInstalled = Array.isArray(probeData.mods) ? probeData.mods : [];
+                if (probeInstalled.length > 0) isFabric = true;
+            } catch (e) { /* ignore */ }
+        }
+        
+        if (isFabric) {
+            html += `
+                <div class="mods-fabric-manager" style="grid-column: 1 / -1; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h4 style="margin:0"><i class="fas fa-microchip"></i> Gestionnaire Fabric</h4>
+                        <div>
+                            <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                                <i class="fas fa-upload"></i> Uploader un mod (.jar)
+                                <input type="file" id="fabric-mod-upload" accept=".jar" style="display:none" onchange="handleModUpload(this.files)">
+                            </label>
+                        </div>
+                    </div>
+                    <div id="fabric-installed-mods" class="installed-mods-list" style="display: flex; flex-direction: column; gap: 8px;">
+                        <div class="loader-small"></div> Chargement des mods installés...
+                    </div>
+                </div>
+            `;
+        }
+
+        html += hits.slice(0, 30).map(h => `
+            <div class="mod-card">
+                <div class="mod-left"><img src="${h.icon_url || '/static/img/default_icon.svg'}" style="width:48px;height:48px;border-radius:4px;margin-right:10px"></div>
+                <div class="mod-body"><strong>${escapeHtml(h.name)}</strong><div class="muted">${escapeHtml(h.slug)}</div></div>
+                <div class="mod-actions"><button class="btn-sm" onclick="openInstallModModal('${h.slug.replace("'","\\'")}', '${escapeHtmlAttr(h.name)}')">Installer</button></div>
+            </div>
+        `).join('');
+
+        container.innerHTML = html;
+
+        // If fabric, fetch installed mods and render
+        if (isFabric) {
+            try {
+                const r2 = await apiFetch(`/api/server/${currentServer}/mods`);
+                const d2 = await r2.json();
+                const installed = Array.isArray(d2.mods) ? d2.mods : (d2.status === 'success' && Array.isArray(d2.mods) ? d2.mods : []);
+                const el = document.getElementById('fabric-installed-mods');
+            console.debug('installed mods fetched', { currentServer, installedCount: Array.isArray(installed) ? installed.length : 0, raw: d2 });
+                if (el) {
+                    if (installed.length === 0) {
+                        el.innerHTML = '<p class="text-muted" style="font-size:0.9em; margin:0;">Aucun mod détecté dans le dossier /mods</p>';
+                    } else {
+                        el.innerHTML = installed.map(m => `
+                            <div class="installed-mod-row" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:4px;">
+                                <span style="font-family:monospace; font-size:0.9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%;">${escapeHtml(m.filename || m.name || String(m))}</span>
+                                <button class="btn-danger btn-sm" style="padding:2px 8px;" onclick="uninstallMod('${escapeHtmlAttr(m.filename || m.name || '')}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (e) { 
+                console.warn('fetch installed mods failed', e);
+                const el = document.getElementById('fabric-installed-mods');
+                if (el) el.innerHTML = '<p class="text-error">Erreur lors du chargement des mods installés</p>';
+            }
+        }
+    } catch (e) {
+        console.error('Erreur loading mods for server:', e);
+        container.innerHTML = '<p class="text-error">Erreur</p>';
+    }
+}
+
+// Load mods globally (used when no currentServer selected)
+async function loadGlobalMods(query) {
+    const container = document.getElementById('mods-global-results');
+    if (!container) return;
+    container.innerHTML = '<div class="loader"></div>';
+    try {
+        const serverSelect = document.getElementById('mods-target-server');
+        const targetServer = serverSelect?.value || null;
+        const loader = targetServer ? (await (await apiFetch(`/api/server/${encodeURIComponent(targetServer)}/config`)).json()).loader_version || null : '';
+        const version = targetServer ? (await (await apiFetch(`/api/server/${encodeURIComponent(targetServer)}/config`)).json()).version || null : '';
+
+        const resp = await apiFetch(`/api/mods/search?q=${encodeURIComponent(query || '')}&loader=${encodeURIComponent(loader || '')}&version=${encodeURIComponent(version || '')}`);
+        const data = await resp.json();
+        const hits = data.result || data.results || data.hits || [];
+
+        if (!Array.isArray(hits) || hits.length === 0) {
+            container.innerHTML = '<p class="text-muted">Aucun mod trouvé</p>';
+            return;
+        }
+
+        container.innerHTML = hits.slice(0, 30).map(h => `
+            <div class="mod-card">
+                <div class="mod-left"><img src="${h.icon_url || '/static/img/default_icon.svg'}" style="width:48px;height:48px;border-radius:4px;margin-right:10px"></div>
+                <div class="mod-body"><strong>${escapeHtml(h.name)}</strong><div class="muted">${escapeHtml(h.slug)}</div></div>
+                <div class="mod-actions"><button class="btn-sm" onclick="openInstallModModal('${h.slug.replace("'","\\'")}', '${escapeHtmlAttr(h.name)}')">Installer</button></div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Erreur loading global mods:', e);
+        container.innerHTML = '<p class="text-error">Erreur</p>';
+    }
+}
+
+async function openInstallModModal(projectId, projectName) {
+    const modalId = 'install-mod-modal';
+    let modal = document.getElementById(modalId);
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = modalId;
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content modal-medium">
+                <div class="modal-header"><h3>Installer <span id="im-name"></span></h3><button class="btn-close" onclick="closeInstallModModal()"><i class="fas fa-times"></i></button></div>
+                <div class="modal-body">
+                    <p>Sélectionnez une version compatible :</p>
+                    <select id="im-version-select" class="setting-select" style="width:100%"></select>
+                </div>
+                <div class="modal-actions"><button class="btn-secondary" onclick="closeInstallModModal()">Annuler</button><button class="btn-primary" id="im-install-btn">Installer</button></div>
+            </div>`;
+        document.body.appendChild(modal);
+    }
+    document.getElementById('im-name').textContent = projectName;
+    document.getElementById('im-version-select').innerHTML = '<option>Chargement...</option>';
+    modal.classList.add('show');
+
+    try {
+        // Determine target server (currentServer or selected in modal)
+        let targetServer = currentServer || null;
+        const sel = document.getElementById('im-version-select');
+
+        async function fetchAndPopulateVersionsForServer(serverName) {
+            try {
+                const cfgResp = await apiFetch(`/api/server/${encodeURIComponent(serverName)}/config`);
+                const cfg = await cfgResp.json();
+                const loader = cfg.loader_version || cfg.server_type || '';
+                const version = cfg.version || cfg.mc_version || '';
+                const r = await apiFetch(`/api/mods/compatible?project_id=${encodeURIComponent(projectId)}&loader=${encodeURIComponent(loader)}&version=${encodeURIComponent(version)}`);
+                const d = await r.json();
+                const versions = d.versions || d || [];
+                const installBtn = document.getElementById('im-install-btn');
+                if (Array.isArray(versions) && versions.length > 0) {
+                    sel.innerHTML = versions.map(v => {
+                        const id = v.id || v.version_id || v.version_number || JSON.stringify(v);
+                        const label = v.version_number || v.version || v.name || id;
+                        return `<option value="${id}">${escapeHtml(label)}</option>`;
+                    }).join('');
+                    if (installBtn) installBtn.disabled = false;
+                    // enable install button only when a real selection is present
+                    sel.addEventListener('change', () => { if (installBtn) installBtn.disabled = !sel.value; });
+                } else {
+                    sel.innerHTML = '<option value="">Sélectionnez une version compatible</option>';
+                    if (installBtn) installBtn.disabled = true;
+                }
+            } catch (e) {
+                console.warn('fetchAndPopulateVersionsForServer failed', e);
+                sel.innerHTML = '<option value="">Erreur récupération versions</option>';
+            }
+        }
+
+        // If no currentServer, insert a server selector into the modal
+        if (!targetServer) {
+            try {
+                const serversResp = await apiFetch('/api/servers');
+                const servers = await serversResp.json() || [];
+                const container = modal.querySelector('.modal-body');
+                const selectHtml = `<div style="margin-bottom:8px">Serveur cible: <select id="im-target-server"><option value="">-- Sélectionner --</option>${servers.map(s => `<option value="${s}">${escapeHtml(s)}</option>`).join('')}</select></div>`;
+                container.insertAdjacentHTML('afterbegin', selectHtml);
+                const targetSelect = document.getElementById('im-target-server');
+                targetSelect.addEventListener('change', async () => {
+                    const sv = targetSelect.value || null;
+                    targetServer = sv;
+                    if (sv) await fetchAndPopulateVersionsForServer(sv);
+                });
+                // Pre-select first server if available
+                if (servers.length > 0) {
+                    targetServer = servers[0];
+                    document.getElementById('im-target-server').value = targetServer;
+                    await fetchAndPopulateVersionsForServer(targetServer);
+                }
+            } catch (e) { console.warn('openInstallModModal: failed to load servers', e); }
+        } else {
+            // We have a currentServer; populate versions for it
+            await fetchAndPopulateVersionsForServer(targetServer);
+        }
+
+        document.getElementById('im-install-btn').onclick = async () => {
+            const selEl = document.getElementById('im-version-select');
+            const selVal = selEl ? (selEl.value || null) : null;
+            if (!targetServer) { showToast('error', 'Sélectionnez un serveur cible'); return; }
+            // Require a selected compatible version
+            if (!selVal) { showToast('error', 'Sélectionnez une version compatible'); return; }
+
+            // Close modal immediately and show installation toast to improve UX
+            try { closeInstallModModal(); } catch (e) {}
+            showToast('info', 'Installation en cours...');
+
+                try {
+                    const cfgResp = await apiFetch(`/api/server/${encodeURIComponent(targetServer)}/config`);
+                    const cfg = await cfgResp.json();
+                    const payload = { project_id: projectId, version_id: selVal, loader: cfg.loader_version || cfg.server_type, mc_version: cfg.version || cfg.mc_version };
+                    console.debug('modal install payload', { targetServer, payload });
+                    const res = await apiFetch(`/api/server/${encodeURIComponent(targetServer)}/mods/install`, { method: 'POST', body: JSON.stringify(payload) });
+                    const result = await res.json();
+                const ok = (result && (result.status === 'success' || result.success === true));
+                if (ok) {
+                    showToast('success', result.message || 'Mod installé');
+                    // Refresh installed mods UI for the current server view if applicable
+                    try { if (targetServer === currentServer) await refreshInstalledMods(); } catch (e) { console.warn('refreshInstalledMods after modal install failed', e); }
+                    // Refresh the mods lists (global or server view)
+                    try { if (targetServer === currentServer) loadModsForCurrentServer(''); else loadGlobalMods(''); } catch (e) { console.warn('refresh mods view after install failed', e); }
+                } else {
+                    showToast('error', result.message || 'Erreur installation');
+                }
+            } catch (e) {
+                console.error('modal install apiFetch failed', e);
+                // Attempt raw fetch to capture server response for debugging
+                try {
+                    const raw = await fetch(`/api/server/${encodeURIComponent(targetServer)}/mods/install`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': getCsrfToken()
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    const text = await raw.text();
+                    console.error('modal install raw response', raw.status, text);
+                    showToast('error', `Erreur installation (${raw.status})`);
+                } catch (rawErr) {
+                    console.error('modal install raw fetch failed', rawErr);
+                    showToast('error', 'Erreur API');
+                }
+            }
+        }
+    } catch (e) { console.error('Erreur compat versions:', e); document.getElementById('im-version-select').innerHTML = '<option value="">Erreur</option>'; }
+}
+
+function closeInstallModModal() { const m = document.getElementById('install-mod-modal'); if (m) m.classList.remove('show'); }
+
+    
 
 
 // ================================
@@ -3615,9 +4437,16 @@ async function serverAction(action) {
 
         if (result.status === 'success') {
 
-            showToast('success', result.message || 'Action effectue');
+            showToast('success', result.message || 'Action effectuée');
 
-            setTimeout(updateStatus, 1000);
+            setTimeout(() => {
+                try { updateStatus(); } catch (e) { console.warn('updateStatus after action failed', e); }
+                try { loadLogs(); } catch (e) { console.warn('loadLogs after action failed', e); }
+            }, 1000);
+            try {
+                const activeTab = document.querySelector('.tab.active')?.dataset?.view;
+                if (activeTab === 'console') startLogStream();
+            } catch (e) { console.warn('startLogStream check failed', e); }
 
         } else {
 
@@ -3743,7 +4572,8 @@ async function deleteServer() {
 
 function switchTab(viewName) {
 
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    // Remove active class and hide all views to avoid leftover visible panes
+    document.querySelectorAll('.view').forEach(v => { v.classList.remove('active'); try { v.style.display = 'none'; } catch (e) {} });
 
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
 
@@ -3757,6 +4587,8 @@ function switchTab(viewName) {
 
     if (tab) tab.classList.add('active');
 
+    if (view) { try { view.style.display = 'block'; } catch (e) {} }
+
 
 
     if (viewName === 'console') startLogStream();
@@ -3769,6 +4601,8 @@ function switchTab(viewName) {
     if (viewName === 'players') loadPlayers();
 
     if (viewName === 'plugins') loadInstalledPlugins();
+
+    if (viewName === 'mods') loadModsForCurrentServer('');
 
     if (viewName === 'config') loadConfig();
 
@@ -3970,37 +4804,22 @@ function searchLogs() {
 
 
 
-function exportLogs() {
 
-    if (allLogs.length === 0) { showToast('info', 'Aucun log a exporter'); return; }
-
-    const blob = new Blob([allLogs.join('\n')], { type: 'text/plain' });
-
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-
-    a.href = url;
-
-    a.download = `${currentServer}_logs_${new Date().toISOString().slice(0, 10)}.txt`;
-
-    a.click();
-
-    URL.revokeObjectURL(url);
-
-    showToast('success', 'Logs exportes');
-
-}
 
 
 
 // Amélioration 24: handleCommandInput amélioré est défini plus haut
 
-async function sendCommand() {
-    if (!currentServer) return;
-    const input = document.getElementById('cmd-input');
-    const command = input.value.trim();
-    if (!command) return;
+async function sendCommand(cmd) {
+    try {
+        if (!currentServer) return;
+        // If a command is supplied, use it; otherwise read from the input field
+        let command = typeof cmd === 'string' && cmd.trim() ? cmd.trim() : null;
+        const input = document.getElementById('cmd-input');
+        if (!command) {
+            command = input ? input.value.trim() : '';
+        }
+        if (!command) return;
 
     // Amélioration 25: Ajouter à l'historique
     if (command !== commandHistory[0]) {
@@ -4016,7 +4835,7 @@ async function sendCommand() {
     sessionStats.commandsSent++;
     sessionStats.apiCalls++;
 
-    try {
+        try {
         const response = await apiFetch(`/api/server/${currentServer}/command`, {
             method: 'POST',
             
@@ -4024,7 +4843,7 @@ async function sendCommand() {
         });
         const result = await response.json();
         if (result.status === 'success') {
-            input.value = '';
+            try { if (input) input.value = ''; } catch (e) {}
 
             // Amélioration 27: Afficher la commande dans la console
             appendCommandToConsole(command);
@@ -4037,6 +4856,12 @@ async function sendCommand() {
         console.error('Erreur commande:', error);
         sessionStats.errors++;
         showToast('error', 'Erreur envoi commande');
+    }
+    } catch (error) {
+        // Defensive catch for ReferenceError (e.g., input undefined) or other sync errors
+        console.error('sendCommand top-level error:', error);
+        sessionStats.errors++;
+        try { showToast('error', 'Erreur envoi commande'); } catch (e) {}
     }
 }
 
@@ -4536,7 +5361,7 @@ function handleItemImageError(img, itemId) {
         img.dataset.fallbackIndex = 1;
     }
 
-    const idx = parseInt(img.dataset.fallbackIndex);
+    const idx = Number.parseInt(img.dataset.fallbackIndex);
     if (idx < TEXTURE_SOURCES.length) {
         img.dataset.fallbackIndex = idx + 1;
         img.src = TEXTURE_SOURCES[idx](id);
@@ -4882,7 +5707,7 @@ function selectItemToGive(itemId) {
  */
 function adjustItemQuantity(delta) {
     const input = document.getElementById('item-quantity');
-    let value = parseInt(input.value) + delta;
+    let value = Number.parseInt(input.value) + delta;
     value = Math.max(1, Math.min(64, value));
     input.value = value;
 }
@@ -4903,7 +5728,7 @@ async function giveItemToPlayer() {
         return;
     }
 
-    const quantity = parseInt(document.getElementById('item-quantity').value) || 1;
+    const quantity = Number.parseInt(document.getElementById('item-quantity').value) || 1;
     const command = `give ${currentPlayerName} minecraft:${selectedItemToGive} ${quantity}`;
 
     try {
@@ -5192,11 +6017,17 @@ function switchInventoryTab(tab) {
 
 
 
-    // Activer l'onglet selectionne
+    // Activer l'onglet selectionne (utiliser l'élément passé si disponible)
+    try {
+        if (typeof el !== 'undefined' && el && el.classList) el.classList.add('active');
+        else {
+            const fallback = document.querySelector(`.inv-tab[onclick*="${tab}"]`);
+            if (fallback) fallback.classList.add('active');
+        }
+    } catch (e) { console.warn('switchInventoryTab: failed to set active tab', e); }
 
-    event.target.closest('.inv-tab').classList.add('active');
-
-    document.getElementById(`${tab}-view`).style.display = 'block';
+    const view = document.getElementById(`${tab}-view`);
+    if (view) view.style.display = 'block';
 
 }
 
@@ -5560,12 +6391,15 @@ async function uploadPlugin(file) {
 
 
 
+        // Ensure CSRF token is fresh and include it
+        await ensureCsrfToken();
+        const _csrf = getCsrfToken();
+        if (_csrf) formData.append('csrf_token', _csrf);
+
         const response = await apiFetch(`/api/server/${currentServer}/plugins/upload`, {
-
             method: 'POST',
-
-            body: formData
-
+            body: formData,
+            headers: { 'X-CSRF-Token': _csrf }
         });
 
 
@@ -5678,7 +6512,7 @@ async function loadConfig() {
             const label = CONFIG_LABELS[key] || key;
             const inputId = `config-${key.replace(/\./g, '-')}`;
             const isBoolean = typeof value === 'boolean' || value === 'true' || value === 'false';
-            const isNumber = !isNaN(value) && value !== '' && !isBoolean;
+            const isNumber = !Number.isNaN(Number(value)) && value !== '' && !isBoolean;
 
             // Amélioration 43: Types d'input adaptés
             if (isBoolean) {
@@ -5766,6 +6600,17 @@ async function saveConfig() {
         if (result.status === 'success') {
             showToast('success', 'Configuration sauvegardée');
             playNotificationSound('success');
+            // Also update server meta if meta inputs are present
+            try {
+                const metaVersion = document.getElementById('server-meta-version')?.value;
+                const metaType = document.getElementById('server-meta-type')?.value;
+                const metaLoader = document.getElementById('server-meta-loader')?.value;
+                const metaForge = document.getElementById('server-meta-forge')?.value;
+                if (metaVersion || metaType || metaLoader || metaForge) {
+                    await apiJson(`/api/server/${currentServer}/meta`, { method: 'POST', body: JSON.stringify({ version: metaVersion, server_type: metaType, loader_version: metaLoader, forge_version: metaForge }) });
+                    showToast('success', 'Méta serveur mise à jour');
+                }
+            } catch (e) { console.warn('Erreur sauvegarde meta:', e); }
         } else {
             showToast('error', result.message || 'Erreur');
         }
@@ -5775,6 +6620,164 @@ async function saveConfig() {
         showToast('error', 'Erreur sauvegarde');
     }
 }
+
+// Sauvegarder manuellement la méta du serveur (version/type/loader/forge)
+async function saveServerMetaFromUI() {
+    if (!currentServer) return showToast('error', 'Sélectionnez un serveur');
+    const versionEl = document.getElementById('server-meta-version');
+    const typeEl = document.getElementById('server-meta-type');
+    const loaderEl = document.getElementById('server-meta-loader');
+    const forgeEl = document.getElementById('server-meta-forge');
+
+    const payload = {
+        version: versionEl ? versionEl.value.trim() : undefined,
+        server_type: typeEl ? typeEl.value : undefined,
+        loader_version: loaderEl ? loaderEl.value.trim() : undefined,
+        forge_version: forgeEl ? forgeEl.value.trim() : undefined
+    };
+
+    try {
+        await apiJson(`/api/server/${currentServer}/meta`, { method: 'POST', body: JSON.stringify(payload) });
+        showToast('success', 'Méta serveur mise à jour');
+        // Refresh server list and detail so visible badge updates immediately
+        await loadServerList(true);
+        try { selectServer(currentServer); } catch (e) { console.warn('saveServerMetaFromUI: selecting server after save failed', e); }
+    } catch (e) {
+        showToast('error', e.message || 'Erreur sauvegarde méta');
+    }
+}
+
+function populateServerMetaUI(cfg) {
+    try {
+        const versionEl = document.getElementById('server-meta-version');
+        const typeEl = document.getElementById('server-meta-type');
+        const loaderEl = document.getElementById('server-meta-loader');
+        const forgeEl = document.getElementById('server-meta-forge');
+        // Prefer explicit cfg fields, else fall back to global context
+        const v = cfg.version || cfg.mc_version || currentServerMcVersion || '';
+        const t = cfg.server_type || (cfg.loader_version ? 'fabric' : (cfg.forge_version ? 'forge' : null)) || currentServerLoader || 'paper';
+        if (versionEl) versionEl.value = v;
+        if (typeEl) typeEl.value = t;
+        if (loaderEl) loaderEl.value = cfg.loader_version || '';
+        if (forgeEl) forgeEl.value = cfg.forge_version || '';
+        // Visible badge in server detail view
+        try {
+            const badge = document.getElementById('server-version-text');
+            if (badge) {
+                const v2 = v || '';
+                const t2 = t || '';
+                badge.textContent = (t2 ? (t2 + ': ') : '') + (v2 || '—');
+            }
+        } catch (e) { console.warn('populateServerMetaUI: failed to set visible badge', e); }
+        // Enforce tab visibility depending on server type/loader
+        try {
+            const modsTab = document.querySelector('.tab[data-view="mods"]');
+            const pluginsTab = document.querySelector('.tab[data-view="plugins"]');
+            const isModdedExplicit = (t && t !== 'paper') || (cfg && (cfg.loader_version || cfg.forge_version || cfg.server_type && cfg.server_type !== 'paper')) || (currentServerLoader && currentServerLoader !== null);
+            // Helper to set UI state
+            const setServerModeUI = (isModded) => {
+                try {
+                    if (modsTab && pluginsTab) {
+                        if (isModded) {
+                            modsTab.style.display = '';
+                            pluginsTab.style.display = 'none';
+                            const imp = document.getElementById('btn-import-mod'); if (imp) imp.style.display = '';
+                        } else {
+                            modsTab.style.display = 'none';
+                            pluginsTab.style.display = '';
+                            const imp = document.getElementById('btn-import-mod'); if (imp) imp.style.display = 'none';
+                        }
+                    }
+                } catch (e) { }
+            };
+
+            if (t === 'paper') {
+                // Explicit Paper: always hide Mods
+                setServerModeUI(false);
+            } else if (isModdedExplicit) {
+                setServerModeUI(true);
+            } else {
+                // No explicit meta; check installed mods to determine mode
+                (async () => {
+                    try {
+                        const modsResp = await apiFetch(`/api/server/${encodeURIComponent(cfg.name || currentServer)}/mods`);
+                        const modsData = await modsResp.json();
+                        const mods = modsData.mods || modsData || [];
+                        // If server config indicates Paper, do not switch to Mods even if mods exist
+                        let explicitCfg = {};
+                        try { const cfgRes = await apiFetch(`/api/server/${encodeURIComponent(cfg.name || currentServer)}/config`); explicitCfg = await cfgRes.json(); } catch (e) {}
+                        const explicitType = explicitCfg.server_type || explicitCfg.serverType || null;
+                        if (explicitType === 'paper') {
+                            setServerModeUI(false);
+                        } else {
+                            setServerModeUI(Array.isArray(mods) && mods.length > 0);
+                        }
+                    } catch (e) {
+                        // Fallback: do not change UI
+                        setServerModeUI(false);
+                    }
+                })();
+            }
+        } catch (e) { console.warn('populateServerMetaUI: failed to set tabs', e); }
+    } catch (e) { console.warn('populateServerMetaUI: failed to populate UI fields', e); }
+}
+
+// Global helper to toggle Mods/Plugins tabs and import visibility
+function setServerModeUI(isModded) {
+    try {
+        const modsTab = document.querySelector('.tab[data-view="mods"]');
+        const pluginsTab = document.querySelector('.tab[data-view="plugins"]');
+        const imp = document.getElementById('btn-import-mod');
+        if (modsTab && pluginsTab) {
+            if (isModded) {
+                modsTab.style.display = '';
+                pluginsTab.style.display = 'none';
+                if (imp) imp.style.display = '';
+            } else {
+                modsTab.style.display = 'none';
+                pluginsTab.style.display = '';
+                if (imp) imp.style.display = 'none';
+            }
+        }
+    } catch (e) { console.warn('setServerModeUI failed', e); }
+}
+globalThis.setServerModeUI = setServerModeUI;
+
+// Manual update: apply the last fetched config (manager_config.json or authoritative) as server meta
+async function manualUpdateServerConfig() {
+    if (!currentServer) {
+        showToast('error', 'Aucun serveur sélectionné');
+        return;
+    }
+    const last = (globalThis._lastServerConfigFetched || {})[currentServer];
+    if (!last) {
+        showToast('error', 'Aucune configuration récupérée à appliquer');
+        return;
+    }
+    const payload = {};
+    if (last.version) payload.version = last.version;
+    if (last.server_type) payload.server_type = last.server_type;
+    if (last.loader_version) payload.loader_version = last.loader_version;
+    if (last.forge_version) payload.forge_version = last.forge_version;
+    if (Object.keys(payload).length === 0) {
+        showToast('error', 'La configuration ne contient pas de méta à appliquer');
+        return;
+    }
+    try {
+        await apiJson(`/api/server/${encodeURIComponent(currentServer)}/meta`, { method: 'POST', body: JSON.stringify(payload) });
+        showToast('success', 'Méta appliquée avec succès');
+        // Re-fetch authoritative config and re-apply
+        const cfgRes = await apiFetch(`/api/server/${encodeURIComponent(currentServer)}/config?t=${Date.now()}`);
+        const cfg = await cfgRes.json();
+        populateServerMetaUI(cfg);
+        await applyServerConfigContext(currentServer, cfg, true);
+        try { const btn = document.getElementById('btn-apply-server-meta'); if (btn) btn.disabled = true; } catch (e) {}
+    } catch (e) {
+        console.warn('manualUpdateServerConfig failed', e);
+        showToast('error', 'Erreur lors de l\'application de la méta');
+    }
+}
+globalThis.manualUpdateServerConfig = manualUpdateServerConfig;
 
 // ================================
 // BACKUPS - Amélioré
@@ -5883,7 +6886,7 @@ async function deleteBackup(backupName) {
 
 
 
-async function restoreBackup(backupName) {
+/* duplicate restoreBackup removed */ async function __restoreBackup_removed(backupName) {
 
     if (!currentServer) return;
 
@@ -5949,7 +6952,7 @@ async function saveSchedule(event) {
 
         type: document.getElementById('schedule-type')?.value || 'daily',
 
-        retention: parseInt(document.getElementById('schedule-retention')?.value || 7),
+        retention: Number.parseInt(document.getElementById('schedule-retention')?.value || 7),
 
         compress: true
 
@@ -6205,7 +7208,7 @@ function toggleAnimations(enabled) {
 
 function toggleBrowserNotifications(enabled) {
 
-    if (enabled && 'Notification' in window) {
+    if (enabled && 'Notification' in globalThis) {
 
         Notification.requestPermission().then(permission => {
 
@@ -6302,7 +7305,7 @@ async function changePassword() {
                 if (currentUser && currentUser.username === 'admin') {
                     localStorage.setItem('admin_default_changed', '1');
                 }
-            } catch (e) {}
+            } catch (e) { console.warn('storing admin_default_changed failed', e); }
         } else {
             showToast('error', data.message || 'Erreur lors du changement de mot de passe');
         }
@@ -6358,7 +7361,7 @@ async function createUser(event) {
 
     const username = document.getElementById('new-username')?.value.trim();
 
-    const password = document.getElementById('new-password')?.value;
+    const password = document.getElementById('new-user-password')?.value;
 
     const role = document.getElementById('new-role')?.value || 'user';
 
@@ -6388,7 +7391,7 @@ async function createUser(event) {
 
             if (document.getElementById('new-username')) document.getElementById('new-username').value = '';
 
-            if (document.getElementById('new-password')) document.getElementById('new-password').value = '';
+            if (document.getElementById('new-user-password')) document.getElementById('new-user-password').value = '';
 
         } else showToast('error', result.message || 'Erreur');
 
@@ -6463,22 +7466,93 @@ async function testDiscord() {
 async function loadVersions() {
 
     try {
-
-        const response = await apiFetch('/api/papermc/versions');
-
-        const versions = await response.json();
-
+        const serverType = document.getElementById('server-type')?.value || 'paper';
         const select = document.getElementById('server-version');
+        if (!select) return;
 
-        if (select) select.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+        if (serverType === 'paper') {
+            const response = await apiFetch('/api/papermc/versions');
+            const data = await response.json();
+            const versions = Array.isArray(data) ? data : (data?.versions || data?.result || []);
+            select.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+            select.onchange = function() { /* nothing for paper */ };
+            document.getElementById('forge-version-group').style.display = 'none';
+            document.getElementById('fabric-loader-group').style.display = 'none';
+        } else if (serverType === 'forge' || serverType === 'neoforge') {
+            const endpoint = serverType === 'forge' ? '/api/forge/versions' : '/api/neoforge/versions';
+            const r = await apiFetch(endpoint);
+            const d = await r.json();
+            // d may be { versions: [...] } or an object mapping mc_version -> metadata
+            let mcVersions = [];
+            if (Array.isArray(d)) mcVersions = d;
+            else if (Array.isArray(d.versions)) mcVersions = d.versions;
+            else if (d && typeof d.versions === 'object') mcVersions = Object.keys(d.versions);
+            else if (d && typeof d === 'object') mcVersions = Object.keys(d);
 
+            select.innerHTML = mcVersions.map(v => `<option value="${v}">${v}</option>`).join('');
+            select.onchange = function() { if (this.value) loadForgeBuilds(this.value); };
+            document.getElementById('forge-version-group').style.display = 'block';
+            document.getElementById('fabric-loader-group').style.display = 'none';
+            // load builds for first version
+            if (mcVersions.length > 0) loadForgeBuilds(mcVersions[0]);
+        } else if (serverType === 'fabric') {
+            const r = await apiFetch('/api/fabric/versions');
+            const d = await r.json();
+            // fabric API may return several shapes: array, {game:[], loader:[]}, or {versions:{game:[], loader:[]}}
+            let versions = [];
+            if (Array.isArray(d)) versions = d;
+            else if (Array.isArray(d.game)) versions = d.game;
+            else if (d && d.versions) {
+                if (Array.isArray(d.versions.game)) versions = d.versions.game;
+                else if (Array.isArray(d.versions)) versions = d.versions;
+            }
+
+            if (!Array.isArray(versions) || versions.length === 0) {
+                console.warn('Fabric versions response has unexpected shape:', d);
+                select.innerHTML = '<option value="">(Aucune version disponible)</option>';
+                document.getElementById('fabric-loader-group').style.display = 'none';
+            } else {
+                select.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+                select.onchange = function() { if (this.value) loadFabricLoaders(this.value); };
+                document.getElementById('fabric-loader-group').style.display = 'block';
+                document.getElementById('forge-version-group').style.display = 'none';
+                loadFabricLoaders(versions[0]);
+            }
+        } else if (serverType === 'quilt') {
+            const r = await apiFetch('/api/quilt/versions');
+            const d = await r.json();
+            const gameVersions = d.game || [];
+            const loaders = d.loader || [];
+            select.innerHTML = gameVersions.map(v => `<option value="${v}">${v}</option>`).join('');
+            select.onchange = function() { /* quilt: loaders are populated separately */ };
+            document.getElementById('fabric-loader-group').style.display = 'block';
+            document.getElementById('forge-version-group').style.display = 'none';
+            const loaderSelect = document.getElementById('fabric-loader');
+            if (loaderSelect) loaderSelect.innerHTML = loaders.map(l => `<option value="${l}">${l}</option>`).join('');
+        } else {
+            // default to papermc
+            const response = await apiFetch('/api/papermc/versions');
+            const versions = await response.json();
+            select.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+            select.onchange = function() { /* default */ };
+            document.getElementById('forge-version-group').style.display = 'none';
+            document.getElementById('fabric-loader-group').style.display = 'none';
+        }
     } catch (error) { console.error('Erreur versions:', error); }
 
 }
 
 
 
-function openModal() { document.getElementById('create-modal')?.classList.add('show'); }
+function openModal() {
+    document.getElementById('create-modal')?.classList.add('show');
+    // initialize modal fields
+    selectedMods = [];
+    renderSelectedMods();
+    try { document.getElementById('mod-job-status').style.display = 'none'; } catch(e){ console.warn('hide mod-job-status failed', e); }
+    // load versions and reset selects
+    loadVersions();
+}
 
 function closeModal() { document.getElementById('create-modal')?.classList.remove('show'); }
 
@@ -6514,7 +7588,15 @@ async function createServer(event) {
 
             method: 'POST',
 
-            body: JSON.stringify({ name, version, ram_min: ramMin + 'M', ram_max: ramMax + 'M' })
+            body: JSON.stringify({
+                name,
+                version,
+                ram_min: ramMin + 'M',
+                ram_max: ramMax + 'M',
+                server_type: document.getElementById('server-type')?.value || 'paper',
+                loader_version: document.getElementById('fabric-loader')?.value || null,
+                forge_version: document.getElementById('forge-version')?.value || null
+            })
 
         });
 
@@ -6524,10 +7606,32 @@ async function createServer(event) {
 
         if (result.status === 'success') {
 
-            showToast('success', `Serveur ${name} cre !`);
+            showToast('success', `Serveur ${name} créé !`);
 
-            loadServerList();
+            // Refresh la liste et sélectionner immédiatement le nouveau serveur
+            // Force save meta from UI values to ensure version/type are persisted
+            try {
+                const payload = {
+                    version: version,
+                    server_type: document.getElementById('server-type')?.value || 'paper',
+                    loader_version: document.getElementById('fabric-loader')?.value || undefined,
+                    forge_version: document.getElementById('forge-version')?.value || undefined
+                };
+                await apiJson(`/api/server/${encodeURIComponent(name)}/meta`, { method: 'POST', body: JSON.stringify(payload) });
+                // Re-fetch authoritative config and update UI so we never show stale values
+                try {
+                    const cfgRes = await apiFetch(`/api/server/${encodeURIComponent(name)}/config`);
+                    const cfg = await cfgRes.json();
+                    console.debug('createServer: server config after create', cfg);
+                    populateServerMetaUI(cfg);
+                } catch (e) {
+                    console.warn('createServer: fetch config after meta save failed', e);
+                    try { populateServerMetaUI(payload); } catch (e2) {}
+                }
+            } catch (e) { console.warn('createServer: auto-save meta failed', e); }
 
+            await loadServerList(true);
+            try { selectServer(name); } catch (e) { console.warn('createServer: selecting new server failed', e); }
             if (document.getElementById('server-name-input')) document.getElementById('server-name-input').value = '';
 
         } else {
@@ -6681,8 +7785,8 @@ function t(key, params = {}) {
 }
 
 // Alias pour compatibilité
-window.t = t;
-window.__ = t;
+globalThis.t = t;
+globalThis.__ = t;
 
 async function changeLanguage(lang) {
     try {
@@ -7089,7 +8193,7 @@ document.addEventListener('keydown', (e) => {
 
     if (e.key >= '1' && e.key <= '5' && !e.ctrlKey && !e.altKey) {
         const tabs = ['console', 'players', 'plugins', 'config', 'backups'];
-        const idx = parseInt(e.key) - 1;
+        const idx = Number.parseInt(e.key) - 1;
         if (tabs[idx]) showTab(tabs[idx]);
     }
 });
@@ -7118,15 +8222,19 @@ function initDragDrop() {
 
 async function handleFileDrop(file) {
     const ext = file.name.split('.').pop().toLowerCase();
+    // Ensure CSRF token is fresh before uploading
+    await ensureCsrfToken();
     const formData = new FormData();
 
     if (ext === 'jar') {
         formData.append('plugin', file);
+        const csrf = getCsrfToken(); if (csrf) formData.append('csrf_token', csrf);
         showToast('info', 'Uploading ' + file.name);
-        const resp = await apiFetch('/api/server/' + currentServer + '/plugins/upload', { method: 'POST', body: formData });
+        const resp = await apiFetch('/api/server/' + currentServer + '/plugins/upload', { method: 'POST', body: formData, headers: { 'X-CSRF-Token': getCsrfToken() } });
         if (resp.ok) { showToast('success', 'Plugin installed'); loadInstalledPlugins(); }
     } else if (ext === 'zip') {
         formData.append('world', file);
+        const csrf = getCsrfToken(); if (csrf) formData.append('csrf_token', csrf);
         const resp = await apiFetch('/api/server/' + currentServer + '/worlds/import', { method: 'POST', body: formData });
         if (resp.ok) showToast('success', 'World imported');
     }
@@ -7232,7 +8340,7 @@ async function startTunnel(provider = null) {
 
         if (resp.status === 401) {
             showToast('error', 'Session expirée, reconnectez-vous');
-            window.location.href = '/login';
+            globalThis.location.href = '/login';
             return;
         }
 
@@ -7672,7 +8780,7 @@ function _showJsError(title, details) {
     root.appendChild(card);
 }
 
-window.addEventListener('error', function (ev) {
+globalThis.addEventListener('error', function (ev) {
     try {
         const msg = ev.message || 'Erreur JS';
         const src = (ev.filename ? `${ev.filename}:${ev.lineno || 0}:${ev.colno || 0}` : '');
@@ -7682,7 +8790,7 @@ window.addEventListener('error', function (ev) {
     } catch (e) { console.error('Error while showing error overlay', e); }
 });
 
-window.addEventListener('unhandledrejection', function (ev) {
+globalThis.addEventListener('unhandledrejection', function (ev) {
     try {
         const reason = ev.reason ? (ev.reason.stack || JSON.stringify(ev.reason)) : 'Rejected promise';
         _showJsError('Unhandled Promise Rejection', String(reason));
@@ -7725,7 +8833,7 @@ function exportConsoleLogs(format = 'txt') {
 // =====================================================
 // AMÉLIORATION 32: Recherche dans les logs
 // =====================================================
-function searchLogs(query) {
+function highlightLogs(query) {
     const output = document.getElementById('console-output');
     if (!output || !query.trim()) return;
 
@@ -7897,7 +9005,7 @@ const pluginFavorites = {
     load() {
         try {
             return JSON.parse(localStorage.getItem(this.key) || '[]');
-        } catch { return []; }
+        } catch (e) { console.warn('pluginFavorites.load failed', e); return []; }
     },
 
     save(favorites) {
@@ -8037,7 +9145,7 @@ const customShortcuts = {
     load() {
         try {
             return JSON.parse(localStorage.getItem(this.key) || '{}');
-        } catch { return {}; }
+        } catch (e) { console.warn('customShortcuts.load failed', e); return {}; }
     },
 
     save(shortcuts) {
@@ -8102,7 +9210,7 @@ function copyServerInfo() {
         status: document.querySelector('.server-status')?.textContent || 'Inconnu',
         version: document.querySelector('.server-version')?.textContent || 'Inconnue',
         players: document.querySelector('.player-count')?.textContent || '0',
-        ip: window.location.hostname,
+        ip: globalThis.location.hostname,
         port: '25565'
     };
 
@@ -8410,8 +9518,8 @@ const connectionStatus = {
     isOnline: navigator.onLine,
 
     init() {
-        window.addEventListener('online', () => this.update(true));
-        window.addEventListener('offline', () => this.update(false));
+        globalThis.addEventListener('online', () => this.update(true));
+        globalThis.addEventListener('offline', () => this.update(false));
         this.update(navigator.onLine);
     },
 
@@ -8566,48 +9674,31 @@ async function refreshServerStats() {
  * Charge les top joueurs du serveur
  */
 async function loadTopPlayers() {
-    if (!currentServer) return;
-
     const container = document.getElementById('top-players-grid');
     if (!container) return;
+    container.innerHTML = '';
+    if (!currentServer) return;
 
     try {
-        const response = await apiFetch(`/api/server/${currentServer}/players`);
-        const players = await response.json();
-
-        if (!players || players.length === 0) {
-            container.innerHTML = '<p class="no-data">Aucun joueur enregistré</p>';
+        const resp = await apiFetch(`/api/server/${currentServer}/players`);
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0) {
+            container.innerHTML = '<div class="empty-message">Aucun joueur</div>';
             return;
         }
 
-        // Trier par temps de jeu (si disponible) ou par dernière connexion
-        const sortedPlayers = players
-            .sort((a, b) => (b.play_time || 0) - (a.play_time || 0))
-            .slice(0, 10); // Top 10
-
-        let html = '';
-        sortedPlayers.forEach((player, index) => {
+        // Sort by play_time or default to 0
+        const sorted = data.slice().sort((a, b) => (b.stats?.play_time || 0) - (a.stats?.play_time || 0));
+        const top = sorted.slice(0, 6);
+        container.innerHTML = top.map((p, index) => {
             const rankClass = index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : '';
-            const playtime = formatPlaytime(player.play_time || 0);
-            const avatar = `https://mc-heads.net/avatar/${player.name}/32`;
-
-            html += `
-                <div class="top-player-card">
-                    <div class="top-player-rank ${rankClass}">${index + 1}</div>
-                    <img class="top-player-avatar" src="${avatar}" alt="${player.name}" onerror="this.src='/static/default-avatar.png'">
-                    <div class="top-player-info">
-                        <div class="top-player-name">${player.name}</div>
-                        <div class="top-player-playtime">${playtime}</div>
-                    </div>
-                </div>
-            `;
-        });
-
-        container.innerHTML = html;
-
-    } catch (error) {
-        console.error('Erreur chargement top joueurs:', error);
-        container.innerHTML = '<p class="no-data">Erreur de chargement</p>';
+            const playtime = p.stats?.play_time || 0;
+            const playLabel = playtime ? formatPlaytime(playtime) : 'N/A';
+            return `<div class="top-player ${rankClass}"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-time">${playLabel}</div></div>`;
+        }).join('');
+    } catch (e) {
+        console.error('Erreur chargement top players:', e);
+        container.innerHTML = '<div class="empty-message">Erreur chargement</div>';
     }
 }
 
@@ -8834,7 +9925,7 @@ async function saveServerProperties() {
             if (input.type === 'checkbox') {
                 properties[input.name] = input.checked;
             } else if (input.type === 'number') {
-                properties[input.name] = parseInt(input.value) || 0;
+                properties[input.name] = Number.parseInt(input.value) || 0;
             } else {
                 properties[input.name] = input.value;
             }
@@ -8895,8 +9986,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==========================================
 // MOD MANAGER (NEW)
 // ==========================================
-async function searchMods() {
-    const query = document.getElementById('mods-search-input').value;
+async function searchMods(q) {
+    const arg = (typeof q === 'string' && q.trim()) ? q.trim() : null;
+    const inputEl = document.getElementById('mods-search-input') || document.getElementById('mods-search-input-panel');
+    const query = arg || (inputEl && inputEl.value ? inputEl.value.trim() : '');
     const container = document.getElementById('mods-results-container');
 
     if (!query) return;
@@ -8916,7 +10009,7 @@ async function searchMods() {
                 container.innerHTML += `
                     <div class="card" style="padding: 15px; display: flex; flex-direction: column; justify-content: space-between;">
                         <div style="display:flex; align-items:center; margin-bottom:10px">
-                            <img src="${mod.icon_url || '/static/img/default_mod.png'}" style="width:48px;height:48px;border-radius:4px;margin-right:10px" onerror="this.src='/static/img/default_icon.png'">
+                            <img src="${mod.icon_url || '/static/img/default_icon.svg'}" style="width:48px;height:48px;border-radius:4px;margin-right:10px" onerror="this.src='/static/img/default_icon.svg'">
                             <div>
                                 <h4 style="margin:0">${mod.title}</h4>
                                 <span style="font-size:0.8em; opacity:0.7">${mod.author}</span>
@@ -8943,19 +10036,141 @@ async function installMod(projectId) {
 
     try {
         showToast('info', "Installation en cours...");
+        const payload = { project_id: projectId, loader: currentServerLoader, mc_version: currentServerMcVersion };
+        console.debug('installMod (direct) payload', { server: currentServer, payload });
         const res = await apiFetch(`/api/server/${currentServer}/mods/install`, {
             method: 'POST',
-            body: JSON.stringify({ project_id: projectId })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
 
-        if (data.status === 'success') {
-            showToast('success', data.message);
-        } else {
-            showToast('error', data.message);
+        const ok = (data && (data.status === 'success' || data.success === true));
+        if (ok) {
+            showToast('success', data.message || 'Mod installé');
+            // Refresh mods UI for current server
+            try { await refreshInstalledMods(); } catch (e) { console.warn('refreshInstalledMods after install failed', e); }
+            try { if (document.querySelector('.tab.active')?.dataset?.view === 'mods') loadModsForCurrentServer(''); } catch (e) {}
         }
+        else showToast('error', data.message || 'Erreur installation');
     } catch (e) {
-        showToast('error', "Erreur d'installation");
+        console.error('installMod apiFetch failed', e);
+        // Attempt raw fetch to capture server response for debugging
+        try {
+            const raw = await fetch(`/api/server/${currentServer}/mods/install`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken()
+                },
+                body: JSON.stringify(payload)
+            });
+            const text = await raw.text();
+            console.error('installMod raw response', raw.status, text);
+            showToast('error', `Erreur installation (${raw.status})`);
+        } catch (rawErr) {
+            console.error('installMod raw fetch failed', rawErr);
+            showToast('error', "Erreur d'installation");
+        }
+    }
+}
+
+// Handler used by Fabric upload input
+async function handleModUpload(files) {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    await uploadModFile(file);
+}
+
+// Uninstall helper for installed mods list
+async function uninstallMod(filename) {
+    if (!currentServer || !filename) return;
+    if (!confirm(`Désinstaller ${filename} ?`)) return;
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/mods/uninstall`, { method: 'POST', body: JSON.stringify({ filename }) });
+        const data = await res.json();
+        if (data.status === 'success') { showToast('success', 'Mod désinstallé'); try { await refreshInstalledMods(); } catch (e){}; loadModsForCurrentServer(''); }
+        else showToast('error', data.message || 'Erreur désinstallation');
+    } catch (e) { showToast('error', 'Erreur API'); }
+}
+
+// Try to uninstall mod by slug or filename identifier
+async function uninstallModByIdentifier(identifier) {
+    if (!currentServer) throw new Error('No server selected');
+    // fetch installed mods and try to match
+    const r = await apiFetch(`/api/server/${currentServer}/mods`);
+    const d = await r.json();
+    const installed = Array.isArray(d.mods) ? d.mods : [];
+    const norm = (s) => (s || '').toString().toLowerCase();
+    const match = installed.find(m => {
+        if (!m) return false;
+        const fname = norm(m.filename || '');
+        const name = norm(m.name || '');
+        const slug = norm(m.slug || '');
+        const id = norm(identifier || '');
+        return fname.includes(id) || name.includes(id) || slug.includes(id) || fname.replace(/[-_]/g,'').includes(id.replace(/[-_]/g,''));
+    });
+    if (!match) throw new Error('Mod non trouvé sur le serveur');
+    const filename = match.filename || match.name || match.slug;
+    const res = await apiFetch(`/api/server/${currentServer}/mods/uninstall`, { method: 'POST', body: JSON.stringify({ filename }) });
+    const data = await res.json();
+    if (!data || data.status !== 'success') throw new Error(data?.message || 'Erreur désinstallation');
+    // Refresh installed list after successful uninstall
+    try { await refreshInstalledMods(); } catch (e) { console.warn('refresh after uninstall failed', e); }
+    return data;
+}
+        
+
+// Refresh the installed mods list for Fabric manager
+async function refreshInstalledMods() {
+    if (!currentServer) return;
+    const el = document.getElementById('fabric-installed-mods');
+    if (!el) return;
+    try {
+        el.innerHTML = '<div class="loader-small"></div>';
+        const r2 = await apiFetch(`/api/server/${currentServer}/mods`);
+        const d2 = await r2.json();
+        console.debug('refreshInstalledMods response', { server: currentServer, status: r2.status, bodyKeys: Object.keys(d2 || {}) });
+        const installed = Array.isArray(d2.mods) ? d2.mods : (d2.status === 'success' && Array.isArray(d2.mods) ? d2.mods : []);
+        if (installed.length === 0) el.innerHTML = '<p class="text-muted" style="margin:0">Aucun mod détecté dans le dossier /mods</p>';
+        else el.innerHTML = installed.map(m => `
+            <div class="installed-mod-row" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:4px;">
+                <span style="font-family:monospace; font-size:0.9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%;">${escapeHtml(m.filename || m.name || String(m))}</span>
+                <button class="btn-danger btn-sm" style="padding:2px 8px;" onclick="uninstallMod('${escapeHtmlAttr(m.filename || m.name || '')}')"><i class="fas fa-trash"></i></button>
+            </div>
+        `).join('');
+        // If we have mods installed, ensure the UI shows the Mods tab (hide Plugins)
+        try {
+            if (installed.length > 0) {
+                // Check explicit config: don't switch to Mods if config explicitly says Paper
+                try {
+                    const cfgRes = await apiFetch(`/api/server/${encodeURIComponent(currentServer)}/config`);
+                    const cfg = await cfgRes.json();
+                    if (!(cfg && (cfg.server_type === 'paper' || cfg.serverType === 'paper'))) {
+                        setServerModeUI(true);
+                    } else {
+                        setServerModeUI(false);
+                    }
+                } catch (e) {
+                    setServerModeUI(true);
+                }
+            }
+        } catch (e) {}
+        // Re-apply crash highlighting if applicable
+        try {
+            document.querySelectorAll('#fabric-installed-mods .installed-mod-row').forEach(el => el.classList.remove('mod-offending'));
+            const crashes = detectCrashes();
+            const info = analyzeCrash(crashes);
+            const offending = info?.filename || info?.slug || info?.name;
+            if (offending) {
+                document.querySelectorAll('#fabric-installed-mods .installed-mod-row').forEach(el => {
+                    if (el.textContent && el.textContent.includes(offending)) el.classList.add('mod-offending');
+                });
+            }
+        } catch (e) { console.warn('re-apply crash highlighting failed', e); }
+    } catch (e) {
+        console.warn('refreshInstalledMods failed', e);
+        if (el) el.innerHTML = '<p class="text-error">Erreur chargement mods</p>';
     }
 }
 
@@ -8976,7 +10191,10 @@ async function optimizeServer() {
     }
 }
 async function initiateIconUpload() {
-    if (!currentServer) return;
+    if (!currentServer) {
+        try { showToast('warning', "Sélectionnez un serveur avant de changer l'icône"); } catch (e) {}
+        return;
+    }
 
     const input = document.createElement('input');
     input.type = 'file';
@@ -8987,10 +10205,53 @@ async function initiateIconUpload() {
         const file = e.target.files[0];
 
         try {
-            const resizedBlob = await resizeImageTo64(file);
-            await uploadIcon(resizedBlob);
+            console.debug('initiateIconUpload: file selected', { name: file.name, type: file.type, size: file.size });
+            showToast('info', 'Lecture de l\'image...');
+
+            if (!(file.type && file.type.startsWith('image/'))) {
+                console.warn('initiateIconUpload: unsupported type', file.type);
+                showToast('error', 'Type de fichier non supporté. Sélectionnez un PNG ou JPG.');
+                return;
+            }
+
+            let img;
+            try {
+                img = await readImageFromFile(file);
+                console.debug('initiateIconUpload: readImageFromFile succeeded', { width: img.width, height: img.height });
+                showToast('info', 'Image chargée (' + img.width + '×' + img.height + ')');
+            } catch (err) {
+                const msg = err && err.message ? err.message : String(err);
+                console.error('initiateIconUpload: readImageFromFile failed', err);
+                showToast('error', 'Impossible de lire l\'image: ' + msg);
+                return;
+            }
+
+            console.debug('initiateIconUpload: image loaded, showing confirmation');
+            const chosenBlob = await showIconConfirmation(file, img);
+            if (!chosenBlob) {
+                console.debug('initiateIconUpload: user cancelled');
+                showToast('info', 'Importation annulée');
+                return;
+            }
+
+            const iconBtn = document.getElementById('server-detail-icon');
+            try { if (iconBtn) iconBtn.classList.add('loading'); } catch (e) {}
+
+            try {
+                console.debug('initiateIconUpload: uploading blob', { blobType: chosenBlob && chosenBlob.type, size: chosenBlob && chosenBlob.size });
+                showToast('info', 'Téléversement de l\'icône en cours...');
+                await uploadIcon(chosenBlob);
+                showToast('success', 'Téléversement terminé');
+            } catch (err) {
+                console.error('initiateIconUpload: uploadIcon failed', err);
+                showToast('error', 'Erreur pendant l\'upload: ' + (err && err.message ? err.message : String(err)));
+            } finally {
+                try { if (iconBtn) iconBtn.classList.remove('loading'); } catch (e) {}
+            }
         } catch (err) {
-            showToast('error', "Erreur image: " + err.message);
+            const msg = err && err.message ? err.message : String(err);
+            console.error('initiateIconUpload: unexpected error', err);
+            showToast('error', "Erreur image: " + msg);
         }
     };
 
@@ -8998,49 +10259,282 @@ async function initiateIconUpload() {
 }
 
 function resizeImageTo64(file) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            console.debug('resizeImageTo64: start', { name: file && file.name, type: file && file.type, size: file && file.size });
+            console.debug('openIconEditor: loading image for editor', { name: file && file.name });
+            const img = await readImageFromFile(file);
+            console.debug('openIconEditor: image loaded for editor', { width: img.width, height: img.height });
             const canvas = document.createElement('canvas');
             canvas.width = 64;
             canvas.height = 64;
             const ctx = canvas.getContext('2d');
 
-            // Draw resized
-            ctx.drawImage(img, 0, 0, 64, 64);
+            // Draw resized center-cropped image
+            const size = Math.min(img.width, img.height);
+            const sx = Math.floor((img.width - size) / 2);
+            const sy = Math.floor((img.height - size) / 2);
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, 64, 64);
 
             canvas.toBlob((blob) => {
                 if (blob) resolve(blob);
-                else reject(new Error("Canvas error"));
+                else reject(new Error('Canvas error'));
             }, 'image/png');
+            console.debug('resizeImageTo64: finished, blob will be created');
+        } catch (err) {
+            console.error('resizeImageTo64 failed', err, { name: file && file.name, type: file && file.type, size: file && file.size });
+            reject(new Error('Impossible de lire l\'image: ' + (err && err.message ? err.message : String(err))));
+        }
+    });
+}
+
+/**
+ * Read an image file reliably using FileReader and return a loaded HTMLImageElement.
+ * Provides clearer error messages when file type is wrong/corrupted.
+ */
+function readImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+        console.debug('readImageFromFile: start', { name: file && file.name, type: file && file.type, size: file && file.size });
+        if (!file) return reject(new Error('Fichier absent'));
+        if (!(file.type && file.type.startsWith('image/'))) {
+            const name = (file.name || '').toLowerCase();
+            if (!name.endsWith('.png') && !name.endsWith('.jpg') && !name.endsWith('.jpeg')) {
+                console.warn('readImageFromFile: unsupported extension or type', { name: file.name, type: file.type });
+                return reject(new Error(`Type de fichier non supporté: ${file.type || 'inconnu'}`));
+            }
+        }
+
+        const fr = new FileReader();
+        fr.onerror = () => reject(new Error('Échec de lecture du fichier'));
+        fr.onload = () => {
+            const dataUrl = fr.result;
+            const img = new Image();
+            img.onload = () => { console.debug('readImageFromFile: image element loaded', { width: img.width, height: img.height }); resolve(img); };
+            img.onerror = (e) => { console.error('readImageFromFile: image element failed to load', e); reject(new Error('Impossible de lire l\'image (données corrompues ou format non supporté)')); };
+            img.src = dataUrl;
         };
-        img.onerror = reject;
-        img.src = URL.createObjectURL(file);
+        fr.readAsDataURL(file);
+    });
+}
+
+/**
+ * Simple mini-éditeur d'icône: affiche un aperçu et effectue un rognage centré
+ * Résout en Blob 64x64 PNG prêt à être uploadé, ou rejette si l'utilisateur annule / erreur
+ */
+function openIconEditor(file) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const img = await readImageFromFile(file);
+
+            const modal = document.createElement('div');
+            modal.className = 'modal icon-editor';
+            modal.innerHTML = `
+                <div class="modal-content" style="width:520px;max-width:95%;padding:16px;">
+                    <h3>Éditeur d'icône</h3>
+                    <p style="margin:8px 0 12px;color:var(--text-muted);font-size:0.95em">Ajustement et rognage centré. L'icône finale sera redimensionnée en 64×64.</p>
+                    <div style="display:flex;gap:12px;align-items:flex-start">
+                        <div style="flex:1;max-width:360px;border:1px solid rgba(255,255,255,0.06);padding:8px;background:var(--bg-secondary)">
+                            <img id="icon-editor-image" src="${img.src}" style="max-width:100%;display:block;margin:0 auto;" />
+                        </div>
+                        <div style="width:160px;text-align:center">
+                            <canvas id="icon-editor-preview" width="128" height="128" style="border:1px solid rgba(255,255,255,0.06);background:#111;margin-bottom:8px"></canvas>
+                            <div style="font-size:0.9em;color:var(--text-muted);">Aperçu 2× (sera réduit à 64×64)</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+                        <button class="btn" id="icon-editor-cancel">Annuler</button>
+                        <button class="btn-primary" id="icon-editor-apply">Appliquer & Téléverser</button>
+                    </div>
+                </div>`;
+
+            document.body.appendChild(modal);
+            console.debug('showIconConfirmation: modal shown');
+            modal.classList.add('show');
+            console.debug('openIconEditor: modal shown');
+
+            // Draw center-crop preview
+            const previewCanvas = modal.querySelector('#icon-editor-preview');
+            const previewCtx = previewCanvas.getContext('2d');
+
+            function drawPreview() {
+                const size = Math.min(img.width, img.height);
+                const sx = Math.floor((img.width - size) / 2);
+                const sy = Math.floor((img.height - size) / 2);
+                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                previewCtx.drawImage(img, sx, sy, size, size, 0, 0, previewCanvas.width, previewCanvas.height);
+            }
+
+            drawPreview();
+
+            modal.querySelector('#icon-editor-cancel').onclick = () => {
+                console.debug('openIconEditor: cancel clicked');
+                modal.remove();
+                resolve(null);
+            };
+
+            modal.querySelector('#icon-editor-apply').onclick = async () => {
+                console.debug('openIconEditor: apply clicked');
+                try {
+                    const size = Math.min(img.width, img.height);
+                    const sx = Math.floor((img.width - size) / 2);
+                    const sy = Math.floor((img.height - size) / 2);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 64;
+                    canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, sx, sy, size, size, 0, 0, 64, 64);
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            console.debug('openIconEditor: blob created');
+                            modal.remove();
+                            resolve(blob);
+                        } else {
+                            console.error('openIconEditor: canvas.toBlob returned null');
+                            modal.remove();
+                            reject(new Error('Erreur génération image'));
+                        }
+                    }, 'image/png');
+                } catch (err) {
+                    modal.remove();
+                    reject(err);
+                }
+            };
+            try { modal.querySelector('#icon-editor-apply').focus(); } catch (e) {}
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
+/**
+ * Affiche une modale de confirmation après sélection de l'image.
+ * Propose: Utiliser telle quelle (sera redimensionnée/convertie en PNG), Éditer (ouvrir editor), Annuler.
+ * Retourne un Blob PNG 64x64 si l'utilisateur choisit d'utiliser ou édite, ou null si annulé.
+ */
+function showIconConfirmation(file, imgElement) {
+    return new Promise((resolve, reject) => {
+        try {
+            const modal = document.createElement('div');
+            modal.className = 'modal icon-confirm';
+            modal.innerHTML = `
+                <div class="modal-content" style="width:480px;max-width:95%;padding:16px;">
+                    <h3>Valider l'icône du serveur</h3>
+                    <div style="display:flex;gap:12px;align-items:center">
+                        <div style="flex:1;max-width:220px;border:1px solid rgba(255,255,255,0.06);padding:8px;background:var(--bg-secondary)">
+                            <img id="icon-confirm-preview" src="${imgElement.src}" style="max-width:100%;display:block;margin:0 auto;" />
+                        </div>
+                        <div style="flex:1">
+                            <p style="margin:0 0 8px">Fichier: <strong>${escapeHtml(file.name || '—')}</strong></p>
+                            <p style="margin:0 0 8px">Type: <strong>${escapeHtml(file.type || 'inconnu')}</strong></p>
+                            <p style="margin:0 0 8px">Dimensions: <strong>${imgElement.width}×${imgElement.height}</strong></p>
+                            <p style="margin:0;color:var(--text-muted);font-size:0.9em">Vous pouvez utiliser cette image telle quelle (elle sera convertie en PNG 64×64) ou l'éditer pour rogner/ajuster.</p>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+                        <button class="btn" id="icon-confirm-cancel">Annuler</button>
+                        <button class="btn" id="icon-confirm-edit">Éditer</button>
+                        <button class="btn-primary" id="icon-confirm-use">Utiliser telle quelle</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+
+            modal.querySelector('#icon-confirm-cancel').onclick = () => { console.debug('showIconConfirmation: cancel'); modal.remove(); resolve(null); };
+
+            modal.querySelector('#icon-confirm-edit').onclick = async () => {
+                console.debug('showIconConfirmation: edit');
+                try {
+                    const blob = await openIconEditor(file);
+                    modal.remove();
+                    resolve(blob);
+                } catch (err) {
+                    modal.remove();
+                    reject(err);
+                }
+            };
+
+            modal.querySelector('#icon-confirm-use').onclick = async () => {
+                console.debug('showIconConfirmation: use as-is');
+                try {
+                    // Convert/resize to 64x64 PNG
+                    const blob = await resizeImageTo64(file);
+                    modal.remove();
+                    resolve(blob);
+                } catch (err) {
+                    modal.remove();
+                    reject(err);
+                }
+            };
+            try { modal.querySelector('#icon-confirm-use').focus(); } catch (e) {}
+        } catch (err) { reject(err); }
     });
 }
 
 async function uploadIcon(blob) {
+    console.debug('uploadIcon: start', { blobType: blob && blob.type, blobSize: blob && blob.size, currentServer });
+    await ensureCsrfToken();
     const formData = new FormData();
     formData.append('icon', blob, 'server-icon.png'); // Force name
+    const csrf = getCsrfToken();
+    if (csrf) formData.append('csrf_token', csrf);
 
     try {
+        console.debug('uploadIcon: sending to', `/api/server/${currentServer}/icon`, { currentServer, csrf, blobType: blob && blob.type });
         const res = await apiFetch(`/api/server/${currentServer}/icon`, {
             method: 'POST',
             body: formData,
             // Skip Content-Type header to let browser set boundary
-            headers: {}
+            headers: { 'X-CSRF-Token': csrf }
         });
-        const data = await res.json();
-        if (data.status === 'success') {
-            showToast('success', "Icône mise à jour! Redémarrez le serveur.");
-            // Refresh icon visually if possible (cache busting)
-            const iconImg = document.querySelector('#server-detail-icon img');
-            if (iconImg) iconImg.src = `/api/server/${currentServer}/icon/raw?t=${Date.now()}`; // Need raw endpoint or serve static
-        } else {
-            showToast('error', data.message);
+
+        let data;
+        try { data = await res.json(); } catch (err) { data = { status: 'error', message: 'Réponse non-JSON du serveur' }; }
+
+        console.debug('uploadIcon: response', res.status, data);
+
+        if (!res || res.status >= 400 || data.status !== 'success') {
+            const msg = data && data.message ? data.message : `Erreur serveur (${res && res.status})`;
+            showToast('error', `Upload échoué: ${msg}`);
+            return;
         }
+
+        showToast('success', "Icône mise à jour (server-icon.png)");
+
+        try {
+            const rawUrl = `/api/server/${currentServer}/icon/raw?t=${Date.now()}`;
+            const verify = await fetch(rawUrl, { credentials: 'include' });
+            if (verify && verify.status === 200) {
+                const iconImg = document.querySelector('#server-detail-icon img');
+                if (iconImg) {
+                    iconImg.src = rawUrl;
+                    iconImg.classList.add('icon-updated');
+                    setTimeout(() => iconImg.classList.remove('icon-updated'), 1600);
+                }
+                document.querySelectorAll(`.server-card img, .server-item img`).forEach(img => {
+                    try { img.src = `/api/server/${currentServer}/icon/raw?t=${Date.now()}`; } catch (e) {}
+                });
+            } else {
+                let text = '';
+                try { text = await verify.text(); } catch (err) { text = String(err); }
+                console.warn('uploadIcon: raw endpoint not ready', { status: verify && verify.status, body: text });
+                showToast('warning', 'Icône sauvegardée mais le fichier n\'est pas disponible via l\'endpoint raw. Vérifiez les permissions.');
+            }
+        } catch (err) {
+            console.warn('uploadIcon: verification failed', err);
+        }
+
+        try { await reloadServerIcon(currentServer, { force: true }); } catch (e) { console.warn('uploadIcon: reloadServerIcon failed', e); }
+
+        // Also call status endpoint for clearer debugging info
+        try {
+            const st = await fetch(`/api/server/${encodeURIComponent(currentServer)}/icon/status`, { credentials: 'include' });
+            const js = await st.json().catch(() => ({}));
+            console.debug('uploadIcon: status', st.status, js);
+            if (js && js.exists) showToast('success', 'Icône disponible sur le serveur');
+            else showToast('warning', 'L\'icône a été sauvegardée mais n\'est pas encore disponible');
+        } catch (e) { console.warn('uploadIcon: status check failed', e); }
     } catch (e) {
-        showToast('error', "Erreur upload icon");
+        console.error('uploadIcon failed', e);
+        showToast('error', "Erreur upload icon: " + (e && e.message ? e.message : String(e)));
     }
 }
 
@@ -9049,13 +10543,41 @@ async function uploadIcon(blob) {
 // ==========================================
 let currentFilePath = "";
 
-function formatBytes(bytes, decimals = 2) {
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+/**
+ * Recharge l'icône du serveur dans l'UI en consultant l'endpoint raw.
+ * Si l'icône n'existe pas, utilise l'icône par défaut.
+ * options: { force: boolean } - if force true, always attempt fetch even if img already set
+ */
+async function reloadServerIcon(serverName, options = {}) {
+    try {
+        const iconImg = document.querySelector('#server-detail-icon img');
+        const rawUrl = `/api/server/${encodeURIComponent(serverName)}/icon/raw?t=${Date.now()}`;
+        console.debug('reloadServerIcon: checking', rawUrl);
+        const res = await fetch(rawUrl, { credentials: 'include' });
+        if (res && res.status === 200) {
+            if (iconImg) {
+                iconImg.src = rawUrl;
+                iconImg.classList.add('icon-updated');
+                setTimeout(() => iconImg.classList.remove('icon-updated'), 1600);
+            }
+            document.querySelectorAll(`.server-card img, .server-item img`).forEach(img => {
+                try { img.src = rawUrl; } catch (e) {}
+            });
+            console.debug('reloadServerIcon: icon loaded');
+            return true;
+        } else {
+            if (iconImg) iconImg.src = '/static/img/default_icon.svg';
+            console.debug('reloadServerIcon: icon not found, using default', { status: res && res.status });
+            return false;
+        }
+    } catch (err) {
+        console.warn('reloadServerIcon failed', err);
+        try { const iconImg = document.querySelector('#server-detail-icon img'); if (iconImg) iconImg.src = '/static/img/default_icon.svg'; } catch (e) {}
+        return false;
+    }
 }
+
+// Use canonical formatBytes implementation defined earlier to avoid duplicates
 
 async function loadFiles(path) {
     if (!currentServer) return;
@@ -9191,7 +10713,7 @@ async function deleteFile(filename) {
 
 function downloadFile(filename) {
     const path = currentFilePath ? `${currentFilePath}/${filename}` : filename;
-    window.location.href = `/api/server/${currentServer}/files/download?path=${encodeURIComponent(path)}`;
+    globalThis.location.href = `/api/server/${currentServer}/files/download?path=${encodeURIComponent(path)}`;
 }
 
 async function createFolder() {
@@ -9225,6 +10747,13 @@ async function uploadFiles() {
         formData.append('files', files[i]);
     }
     formData.append('path', currentFilePath);
+    // Ajouter le token CSRF directement dans le form-data pour multipart requests
+    const csrf = getCsrfToken();
+    if (!csrf) {
+        showToast('error', 'CSRF token manquant. Rafraîchissez la page et reconnectez-vous.');
+        return;
+    }
+    formData.append('csrf_token', csrf);
 
     try {
         const res = await apiFetch(`/api/server/${currentServer}/files/upload`, {
@@ -9241,6 +10770,45 @@ async function uploadFiles() {
         }
     } catch (e) {
         showToast('error', "Erreur upload");
+    }
+}
+
+// Handler appelé depuis l'input file (onchange="handleFileUpload(this.files)")
+async function handleFileUpload(files) {
+    if (!currentServer) {
+        showToast('error', 'Sélectionnez un serveur avant d\'uploader des fichiers');
+        return;
+    }
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    formData.append('path', currentFilePath);
+    // Ensure CSRF is fresh and include it
+    await ensureCsrfToken();
+    const csrf = getCsrfToken();
+    if (!csrf) { showToast('error', 'CSRF token manquant. Rafraîchissez la page.'); return; }
+    formData.append('csrf_token', csrf);
+
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/files/upload`, {
+            method: 'POST',
+            body: formData,
+            // explicit X-CSRF-Token header as additional robustness
+            headers: { 'X-CSRF-Token': csrf }
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            showToast('success', 'Fichiers uploadés');
+            loadFiles('');
+        } else {
+            showToast('error', data.message || 'Erreur upload');
+        }
+    } catch (e) {
+        console.error('Erreur upload fichiers:', e);
+        showToast('error', 'Erreur upload');
     }
 }
 
@@ -9283,14 +10851,19 @@ function updateDashboardUI(data) {
     `;
 }
 
-// Amélioration 42: Export des logs
-async function exportLogs() {
-    if (!currentServer) {
-        showToast('warning', 'Sélectionnez un serveur');
-        return;
+// Amélioration 42: Recherche de logs côté serveur
+async function searchLogsRemote(query) {
+    if (!currentServer) return;
+    try {
+        const res = await apiFetch(`/api/server/${currentServer}/logs/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        if (data.status === 'success') {
+            displayLogs(data.logs);
+            showToast('info', `${data.count} résultats trouvés`);
+        }
+    } catch (e) {
+        showToast('error', 'Erreur de recherche');
     }
-    window.location.href = `/api/server/${currentServer}/logs/export`;
-    showToast('info', 'Téléchargement des logs...');
 }
 
 // Amélioration 43: Recherche dans les logs
@@ -9341,7 +10914,7 @@ async function exportWorld() {
         return;
     }
     showToast('info', 'Préparation de l\'export...');
-    window.location.href = `/api/server/${currentServer}/world/export`;
+    globalThis.location.href = `/api/server/${currentServer}/world/export`;
 }
 
 // Amélioration 46: Broadcast message
@@ -9591,7 +11164,7 @@ function exportConfig() {
         showToast('warning', 'Sélectionnez un serveur');
         return;
     }
-    window.location.href = `/api/server/${currentServer}/config/export`;
+    globalThis.location.href = `/api/server/${currentServer}/config/export`;
 }
 
 // Amélioration 58: Restauration backup
@@ -9674,7 +11247,7 @@ function showModal(title, content) {
         `;
         document.body.appendChild(modal);
     }
-    
+    // Remplir et afficher le modal
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = content;
     modal.style.display = 'flex';
@@ -9684,3 +11257,94 @@ function closeGenericModal() {
     const modal = document.getElementById('generic-modal');
     if (modal) modal.style.display = 'none';
 }
+
+// --- Exposer fonctions utilisées par les attributs inline ---
+// Use a safe expose helper: do not reference undefined identifiers directly
+// (which throws ReferenceError); instead use `typeof`/`eval('typeof ...')` to
+// detect functions and copy them onto `globalThis` when available.
+(function safeExpose(names) {
+    names.forEach(n => {
+        try {
+            if (typeof globalThis[n] === 'function') return; // already global
+            // `eval('typeof name')` returns a string without throwing even if
+            // the identifier does not exist in this scope.
+            if (eval('typeof ' + n) === 'function') {
+                globalThis[n] = eval(n); // copy function reference
+                return;
+            }
+            // Fallback: ensure `showSection` at least forwards to queued real impl
+            if (n === 'showSection' && typeof globalThis.showSection !== 'function') {
+                globalThis.showSection = function(sectionName) { if (globalThis.__real_showSection) return globalThis.__real_showSection(sectionName); };
+            }
+        } catch (e) {
+            console.warn('expose ' + n + ' failed', e);
+        }
+    });
+})(['openSettings','logout','refreshAll','openModal','closeModal','changeLanguage','toggleLanguageDropdown','selectServer','createServer','saveConfig','showSection']);
+
+// --- Diagnostic & robustification ---
+try {
+    console.log('MCPanel: bootstrapping client script');
+    globalThis.__mcpanel_loaded = true;
+
+    // Global error handlers to help debugging when buttons don't respond
+    globalThis.addEventListener('error', (ev) => {
+        try { console.error('Global error caught:', ev.error || ev.message || ev); } catch (e) { console.warn('global error handler logging failed', e); }
+        try { if (typeof showToast === 'function') showToast('error', 'Erreur JavaScript: ' + (ev.message || ev.error?.message || 'See console')); } catch (e) { console.warn('showToast in error handler failed', e); }
+    });
+    globalThis.addEventListener('unhandledrejection', (ev) => {
+        try { console.error('Unhandled rejection:', ev.reason); } catch (e) { console.warn('unhandled rejection logging failed', e); }
+        try { if (typeof showToast === 'function') showToast('error', 'Rejet non géré: ' + (ev.reason?.message || String(ev.reason))); } catch (e) { console.warn('showToast in unhandledrejection failed', e); }
+    });
+
+    // Helper: expose named functions (if defined) to window for inline handlers
+    (function expose(names) {
+        names.forEach(n => {
+            try {
+                if (typeof globalThis[n] === 'function') return; // already available globally
+                // Some environments might still expect functions on the global object; attempt to copy
+                if (typeof globalThis[n] === 'function') return;
+            } catch (e) { console.warn('expose helper failed for', n, e); }
+        });
+    })(['showSection','openSettings','logout','refreshAll','openModal','closeModal','changeLanguage','toggleLanguageDropdown','selectServer','createServer','saveConfig','uploadFiles','handleFileUpload','openInstallModModal','closeInstallModModal','installMod','selectServer']);
+
+    // Attach DOM-ready bindings for elements that use inline onclick attributes to ensure
+    // they work even if the browser evaluated the HTML before script initialization.
+    document.addEventListener('DOMContentLoaded', () => {
+        // Nav buttons
+        document.querySelectorAll('.nav-item').forEach(btn => {
+            btn.removeEventListener('click', btn._mcp_click);
+            btn._mcp_click = () => {
+                const sec = btn.dataset.section;
+                if (sec && typeof globalThis.showSection === 'function') globalThis.showSection(sec);
+            };
+            btn.addEventListener('click', btn._mcp_click);
+        });
+
+        // Language dropdown
+        const currentLangBtn = document.getElementById('current-lang');
+        if (currentLangBtn && typeof toggleLanguageDropdown === 'function') currentLangBtn.addEventListener('click', toggleLanguageDropdown);
+        document.querySelectorAll('.lang-option').forEach(opt => {
+            opt.removeEventListener('click', opt._mcp_click);
+            opt._mcp_click = (e) => {
+                const lang = opt.getAttribute('data-lang') || opt.dataset.lang || (opt.textContent || '').trim().slice(-2);
+                if (lang && typeof changeLanguage === 'function') changeLanguage(lang);
+            };
+            opt.addEventListener('click', opt._mcp_click);
+        });
+
+        // Create server button
+        const createBtn = document.querySelector('.btn-create-large');
+        if (createBtn && typeof openModal === 'function') {
+            createBtn.removeEventListener('click', createBtn._mcp_click);
+            createBtn._mcp_click = () => openModal();
+            createBtn.addEventListener('click', createBtn._mcp_click);
+        }
+    });
+
+    // Flush queued showSection calls if any
+    if (Array.isArray(globalThis.__queuedShowSection) && globalThis.__queuedShowSection.length > 0 && typeof globalThis.__real_showSection === 'function') {
+        globalThis.__queuedShowSection.forEach(s => { try { globalThis.__real_showSection(s); } catch (e) { console.warn('flushing queued showSection failed', e); } });
+        globalThis.__queuedShowSection = [];
+    }
+} catch (e) { console.warn('Bootstrap diagnostic failed', e); }

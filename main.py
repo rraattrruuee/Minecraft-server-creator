@@ -4,6 +4,8 @@ import secrets
 import subprocess
 import sys
 import time
+import requests
+from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response, send_file
@@ -18,9 +20,14 @@ from core.monitoring import MetricsCollector, ServerMonitor
 from core.notifications import notification_manager, notify
 from core.plugins import PluginManager
 from core.rcon import RconClient
+from core.jobs import get_job_manager
 from core.scheduler import BackupScheduler
 from core.stats import PlayerStatsManager
 from core.tunnel import TunnelManager, get_tunnel_manager
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 # Configuration encodage pour Windows
 if sys.platform == "win32":
@@ -86,6 +93,10 @@ def csrf_protect():
                     header_token = json_data.get("_csrf_token") or json_data.get("csrf_token")
             except:
                 pass
+
+        # Amélioration Sécurité 21: Accepter aussi le token depuis le cookie (utile pour multipart/form-data)
+        if not header_token:
+            header_token = request.cookies.get('csrf_token')
         
         # Paths that don't require CSRF token
         exempt_paths = ["/api/auth/login", "/api/auth/register", "/api/csrf-token"]
@@ -193,6 +204,23 @@ try:
 except Exception as e:
     print(f"[WARN] Erreur initialisation tunnel manager: {e}")
     tunnel_mgr = None
+
+# Initialiser le gestionnaire de mods
+try:
+    from core.mods import ModManager
+    mod_mgr = ModManager(os.path.join(os.path.dirname(__file__), "servers"))
+    print("[INFO] Mod manager initialisé")
+except Exception as e:
+    print(f"[WARN] Erreur initialisation mod manager: {e}")
+    mod_mgr = None
+
+# Job manager (background tasks)
+try:
+    job_mgr = get_job_manager()
+    print("[INFO] Job manager initialisé")
+except Exception as e:
+    print(f"[WARN] Erreur initialisation job manager: {e}")
+    job_mgr = None
 
 print("[INFO] Demarrage MCPanel...")
 
@@ -791,6 +819,29 @@ def get_versions():
     return jsonify(srv_mgr.get_available_versions())
 
 
+@app.route("/api/papermc/builds/<version>")
+@login_required
+def get_paper_builds(version):
+    """Récupère les informations sur les builds Paper pour une version"""
+    try:
+        build_info = srv_mgr.get_paper_build_info(version)
+        return jsonify({"status": "success", **build_info})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/papermc/download-url/<version>")
+@login_required
+def get_paper_download_url(version):
+    """Génère l'URL de téléchargement Paper"""
+    try:
+        build = request.args.get("build", type=int)
+        url = srv_mgr.get_paper_download_url(version, build)
+        return jsonify({"status": "success", "url": url, "version": version})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
 @app.route("/api/servers")
 @login_required
 def list_servers():
@@ -806,10 +857,372 @@ def get_forge_versions():
     return jsonify({"status": "success", "versions": srv_mgr.get_forge_versions()})
 
 
+@app.route("/api/forge/builds/<version>")
+@login_required
+def get_forge_builds(version):
+    """Récupère les builds Forge pour une version MC"""
+    try:
+        builds = srv_mgr.get_forge_builds(version)
+        return jsonify({"status": "success", **builds})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
 @app.route("/api/fabric/versions")
 @login_required
 def get_fabric_versions():
     return jsonify({"status": "success", "versions": srv_mgr.get_fabric_versions()})
+
+
+@app.route("/api/fabric/loaders/<mc_version>")
+@login_required
+def get_fabric_loaders(mc_version):
+    """Récupère les loaders Fabric compatibles avec une version MC"""
+    try:
+        loaders = srv_mgr.get_fabric_loader_for_game(mc_version)
+        # loaders is a list of strings
+        return jsonify({"status": "success", "loaders": loaders})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route('/favicon.ico')
+def favicon():
+    try:
+        return send_file(os.path.join(app.static_folder, 'img', 'default_icon.svg'), mimetype='image/svg+xml')
+    except Exception:
+        return ('', 204)
+
+
+@app.route("/api/neoforge/versions")
+@login_required
+def get_neoforge_versions():
+    """Récupère les versions NeoForge (fork moderne de Forge)"""
+    try:
+        versions = srv_mgr.get_neoforge_versions()
+        return jsonify({"status": "success", **versions})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/quilt/versions")
+@login_required
+def get_quilt_versions():
+    """Récupère les versions Quilt (fork de Fabric)"""
+    try:
+        versions = srv_mgr.get_quilt_versions()
+        return jsonify({"status": "success", **versions})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+# ===================== MODS API (Modrinth) =====================
+
+@app.route("/api/mods/search")
+@login_required
+def mods_search():
+    """Recherche des mods sur Modrinth"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        query = request.args.get("q", "")
+        loader = request.args.get("loader")  # forge, fabric, neoforge, quilt
+        mc_version = request.args.get("version")
+        limit = request.args.get("limit", 20, type=int)
+        offset = request.args.get("offset", 0, type=int)
+        
+        result = mod_mgr.search(query, loader, mc_version, limit, offset)
+        return jsonify({"status": "success", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/mods/popular")
+@login_required
+def mods_popular():
+    """Récupère les mods les plus populaires"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        loader = request.args.get("loader")
+        mc_version = request.args.get("version")
+        limit = request.args.get("limit", 20, type=int)
+        
+        result = mod_mgr.get_popular_mods(loader, mc_version, limit)
+        return jsonify({"status": "success", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/mods/details/<project_id>")
+@login_required
+def mods_details(project_id):
+    """Récupère les détails d'un mod"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        details = mod_mgr.get_mod_details(project_id)
+        return jsonify({"status": "success", **details})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/mods/versions/<project_id>")
+@login_required
+def mods_versions(project_id):
+    """Récupère les versions disponibles d'un mod"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        loader = request.args.get("loader")
+        mc_version = request.args.get("version")
+        
+        versions = mod_mgr.get_mod_versions(project_id, loader, mc_version)
+        return jsonify({"status": "success", "versions": versions})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/mods/categories")
+@login_required
+def mods_categories():
+    """Récupère les catégories de mods"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        categories = mod_mgr.get_categories()
+        return jsonify({"status": "success", "categories": categories})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/mods/loaders")
+@login_required
+def mods_loaders():
+    """Récupère les loaders de mods disponibles"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        loaders = mod_mgr.get_loaders()
+        return jsonify({"status": "success", "loaders": loaders})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/mods/compatible")
+@login_required
+def mods_compatible():
+    """Vérifie les versions compatibles d'un mod pour une MC version et loader"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"}), 500
+
+        project_id = request.args.get("project_id")
+        loader = request.args.get("loader")
+        mc_version = request.args.get("version")
+
+        if not project_id:
+            return jsonify({"status": "error", "message": "project_id requis"}), 400
+
+        versions = mod_mgr.get_mod_versions(project_id, loader=loader, mc_version=mc_version)
+        return jsonify({"status": "success", "versions": versions})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+# ===================== JOBS API =====================
+@app.route("/api/jobs/install-mods", methods=["POST"])
+@login_required
+def jobs_install_mods():
+    try:
+        if job_mgr is None:
+            return jsonify({"status": "error", "message": "Job manager non initialisé"}), 500
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"}), 500
+
+        data = request.json or {}
+        server_name = data.get("server_name")
+        mods = data.get("mods", [])
+        loader = data.get("loader")
+        mc_version = data.get("mc_version")
+
+        if not server_name or not isinstance(mods, list) or not mods:
+            return jsonify({"status": "error", "message": "server_name et mods requis"}), 400
+
+        def worker(job, server_name, mods, loader, mc_version):
+            results = []
+            for i, m in enumerate(mods):
+                project_id = m.get("project_id")
+                version_id = m.get("version_id")
+                job.progress = int((i / max(1, len(mods))) * 100)
+                job.logs.append(f"Installing {project_id}...")
+                try:
+                    res = mod_mgr.install(server_name, project_id, version_id, loader, mc_version)
+                    results.append({"project_id": project_id, **res})
+                    job.logs.append(f"Installed {project_id}: {res.get('message','ok')}")
+                except Exception as e:
+                    results.append({"project_id": project_id, "success": False, "message": str(e)})
+                    job.logs.append(f"Error {project_id}: {e}")
+                time.sleep(0.1)
+            job.result = {"mods": results}
+            return job.result
+
+        job = job_mgr.create_job("install-mods", worker, server_name, mods, loader, mc_version)
+        return jsonify({"status": "success", "job_id": job.id})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/jobs/<job_id>")
+@login_required
+def jobs_get(job_id):
+    try:
+        if job_mgr is None:
+            return jsonify({"status": "error", "message": "Job manager non initialisé"}), 500
+        job = job_mgr.get_job(job_id)
+        if not job:
+            return jsonify({"status": "error", "message": "Job introuvable"}), 404
+        return jsonify({
+            "status": "success",
+            "job": {
+                "id": job.id,
+                "type": job.type,
+                "status": job.status,
+                "progress": job.progress,
+                "created_at": job.created_at,
+                "finished_at": job.finished_at,
+                "result": job.result
+            }
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/jobs/<job_id>/logs")
+@login_required
+def jobs_logs(job_id):
+    try:
+        if job_mgr is None:
+            return jsonify({"status": "error", "message": "Job manager non initialisé"}), 500
+        job = job_mgr.get_job(job_id)
+        if not job:
+            return jsonify({"status": "error", "message": "Job introuvable"}), 404
+        return jsonify({"status": "success", "logs": job.logs[-200:]})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
+@login_required
+def jobs_cancel(job_id):
+    try:
+        if job_mgr is None:
+            return jsonify({"status": "error", "message": "Job manager non initialisé"}), 500
+        ok = job_mgr.cancel_job(job_id)
+        if not ok:
+            return jsonify({"status": "error", "message": "Impossible d'annuler le job"}), 400
+        return jsonify({"status": "success", "message": "Job cancelled"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/server/<name>/mods")
+@login_required
+def server_mods_list(name):
+    """Liste les mods installés sur un serveur"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        mods = mod_mgr.list_installed(name)
+        return jsonify({"status": "success", "mods": mods})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/server/<name>/mods/install", methods=["POST"])
+@login_required
+def server_mods_install(name):
+    """Installe un mod sur un serveur"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        data = request.json or {}
+        project_id = data.get("project_id")
+        version_id = data.get("version_id")
+        loader = data.get("loader")
+        mc_version = data.get("mc_version")
+
+        # Si loader ou mc_version absents, essayer de les déduire depuis la config du serveur
+        try:
+            server_cfg = srv_mgr.get_server_config(name)
+            if not loader:
+                # config peut contenir 'server_type' ou 'loader_version'
+                loader = server_cfg.get('loader_version') or server_cfg.get('server_type')
+            if not mc_version:
+                mc_version = server_cfg.get('version') or server_cfg.get('mc_version')
+        except Exception:
+            pass
+        
+        if not project_id:
+            return jsonify({"status": "error", "message": "project_id requis"}), 400
+        
+        result = mod_mgr.install(name, project_id, version_id, loader, mc_version)
+        # Normaliser la réponse pour renvoyer toujours un champ 'status'
+        if isinstance(result, dict) and result.get('success'):
+            return jsonify({"status": "success", **result})
+        # Erreur connue renvoyée par mod_mgr
+        if isinstance(result, dict) and not result.get('success'):
+            return jsonify({"status": "error", "message": result.get('message', 'Erreur installation')}), 400
+        # Fallback
+        return jsonify({"status": "error", "message": "Erreur installation"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/server/<name>/mods/uninstall", methods=["POST"])
+@login_required
+def server_mods_uninstall(name):
+    """Désinstalle un mod d'un serveur"""
+    try:
+        if mod_mgr is None:
+            return jsonify({"status": "error", "message": "Mod manager non initialisé"})
+        
+        data = request.json or {}
+        filename = data.get("filename")
+        
+        if not filename:
+            return jsonify({"status": "error", "message": "filename requis"}), 400
+        # Prevent uninstalling from wrong server type (plugins vs mods)
+        try:
+            cfg = srv_mgr.get_server_config(name)
+            stype = cfg.get('server_type') or srv_mgr.detect_server_type(name)
+        except Exception:
+            stype = 'paper'
+
+        # if filename ends with .jar and server is paper -> plugin uninstall
+        if filename.endswith('.jar') and stype != 'paper':
+            # For modded servers, uninstall expects file names in mods folder
+            res = mod_mgr.uninstall(name, filename)
+            if res.get('success'):
+                return jsonify({"status": "success", **res})
+            return jsonify({"status": "error", "message": res.get('message', 'Erreur suppression')}), 400
+
+        result = mod_mgr.uninstall(name, filename)
+        if isinstance(result, dict) and result.get('success'):
+            return jsonify({"status": "success", **result})
+        if isinstance(result, dict) and not result.get('success'):
+            return jsonify({"status": "error", "message": result.get('message', 'Erreur suppression')}), 400
+        return jsonify({"status": "error", "message": "Erreur suppression"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 
 @app.route("/api/templates")
@@ -840,24 +1253,68 @@ def create():
         base_path = data.get("base_path", "").strip()
         server_type = data.get("server_type", "paper")
         loader_version = data.get("loader_version")
+        forge_version = data.get("forge_version")
         
         if not name or not version:
             return jsonify({"status": "error", "message": "Nom et version requis"}), 400
         
         # Créer le serveur avec toutes les options
         srv_mgr.create_server(
-            name=name, 
-            version=version, 
+            name=name,
+            version=version,
             ram_min=ram_min,
             ram_max=ram_max,
             storage_limit=storage_limit,
             base_path=base_path if base_path else None,
             server_type=server_type,
             loader_version=loader_version,
+            forge_version=forge_version,
             owner=session["user"]["username"]
         )
-        
-        return jsonify({"status": "success"})
+
+        # Ensure meta is stored reliably even if create_server had internal fallbacks
+        try:
+            srv_mgr.set_server_meta(name, version=version, server_type=server_type, loader_version=loader_version, forge_version=forge_version)
+        except Exception as e:
+            print(f"[WARN] set_server_meta after create failed: {e}")
+
+        # Si des mods sont fournis, tenter de les installer (synchronique)
+        mods_payload = data.get("mods", []) if isinstance(data.get("mods", []), list) else []
+        mods_results = []
+        if mods_payload:
+            if mod_mgr is None:
+                return jsonify({"status": "error", "message": "Mod manager non initialisé"}), 500
+
+            # Pour chaque mod, vérifier la compatibilité et installer
+            for m in mods_payload:
+                project_id = m.get("project_id")
+                version_id = m.get("version_id")
+
+                if not project_id:
+                    mods_results.append({"project_id": None, "success": False, "message": "project_id requis"})
+                    continue
+
+                # Vérifier compatibilité si mc_version/loader fournis
+                try:
+                    compatible_versions = mod_mgr.get_mod_versions(project_id, loader=loader_version, mc_version=version)
+                except Exception as e:
+                    compatible_versions = []
+
+                if version_id:
+                    # vérifier que la version demandée est compatible
+                    ok = any(v.get("id") == version_id for v in compatible_versions)
+                    if not ok:
+                        mods_results.append({"project_id": project_id, "success": False, "message": "Version incompatible ou introuvable"})
+                        continue
+
+                # Installer
+                try:
+                    res = mod_mgr.install(name, project_id, version_id, loader=loader_version, mc_version=version)
+                    mods_results.append({"project_id": project_id, **res})
+                except Exception as e:
+                    mods_results.append({"project_id": project_id, "success": False, "message": str(e)})
+
+        return jsonify({"status": "success", "mods": mods_results})
     except Exception as e:
         print(f"[ERROR] Erreur Creation: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -1224,6 +1681,16 @@ def upload_plugin(name):
         from werkzeug.utils import secure_filename
         filename = secure_filename(file.filename)
         
+        # Vérifier le type de serveur: n'accepter que pour Paper/Spigot
+        try:
+            cfg = srv_mgr.get_server_config(name)
+            stype = cfg.get('server_type') or srv_mgr.detect_server_type(name)
+        except Exception:
+            stype = 'paper'
+
+        if stype != 'paper':
+            return jsonify({"status": "error", "message": f"Serveur de type '{stype}' détecté: upload de plugins (.jar Bukkit) non supporté. Utilisez l'onglet Mods pour installer des mods."}), 400
+
         plugins_dir = os.path.join("servers", name, "plugins")
         os.makedirs(plugins_dir, exist_ok=True)
         
@@ -1237,13 +1704,105 @@ def upload_plugin(name):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/server/<name>/mods/upload", methods=["POST"])
+@login_required
+def upload_mod(name):
+    try:
+        if 'mod' not in request.files:
+            return jsonify({"status": "error", "message": "Aucun fichier envoyé"}), 400
+
+        file = request.files['mod']
+        if file.filename == '':
+            return jsonify({"status": "error", "message": "Aucun fichier sélectionné"}), 400
+
+        if not file.filename.endswith('.jar'):
+            return jsonify({"status": "error", "message": "Le fichier doit être un .jar"}), 400
+
+        from werkzeug.utils import secure_filename
+        filename = secure_filename(file.filename)
+
+        # Vérifier le type de serveur: n'accepter que pour les serveurs moddés
+        try:
+            cfg = srv_mgr.get_server_config(name)
+            stype = cfg.get('server_type') or srv_mgr.detect_server_type(name)
+        except Exception:
+            cfg = {}
+            stype = None
+
+        # Accept upload when config explicitly indicates a modded server OR when a mods/ directory exists
+        server_path = os.path.join(srv_mgr.base_dir, name)
+        mods_dir = os.path.join(server_path, 'mods')
+        explicit_modded = bool(cfg.get('server_type') in ['fabric', 'forge', 'neoforge', 'quilt'] or cfg.get('loader_version') or cfg.get('forge_version'))
+        if stype == 'paper' and not explicit_modded and not os.path.exists(mods_dir):
+            # If no explicit modded meta and no mods dir exists, create the mods dir and accept the upload
+            try:
+                os.makedirs(mods_dir, exist_ok=True)
+                print(f"[INFO] Created mods directory for server {name} to accept manual mod upload")
+                # Proceed with upload (do not force change of server meta automatically)
+            except Exception as e:
+                return jsonify({"status": "error", "message": f"Impossible de préparer le répertoire /mods: {e}"}), 500
+
+        mods_dir = os.path.join('servers', name, 'mods')
+        os.makedirs(mods_dir, exist_ok=True)
+
+        filepath = os.path.join(mods_dir, filename)
+        file.save(filepath)
+
+        auth_mgr._log_audit(session["user"]["username"], "MOD_UPLOAD", f"{name}/{filename}")
+        return jsonify({"status": "success", "message": f"Mod {filename} uploadé"})
+    except Exception as e:
+        print(f"[ERROR] Erreur upload mod: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/server/<name>/config", methods=["GET", "POST"])
 @login_required
 def server_config(name):
     if request.method == "POST":
-        srv_mgr.save_server_config(name, request.json)
+        # Merge incoming partial config with existing config to avoid overwriting meta
+        incoming = request.json or {}
+        try:
+            from datetime import datetime
+            existing = srv_mgr.get_server_config(name) or {}
+            merged = {**existing, **incoming}
+            srv_mgr.save_server_config(name, merged)
+            # Log concise trace for debugging race overwrites
+            try:
+                snippet_in = json.dumps(incoming, ensure_ascii=False)
+                if len(snippet_in) > 200:
+                    snippet_in = snippet_in[:200] + '...'
+            except Exception:
+                snippet_in = '<unserializable>'
+            print(f"[DEBUG] {datetime.now().isoformat()} API POST /api/server/{name}/config incoming_keys={list(incoming.keys())} merged_keys={list(merged.keys())} incoming_snippet={snippet_in}")
+            return jsonify({"status": "success"})
+        except Exception as e:
+            print(f"[ERROR] API /api/server/{name}/config save failed: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+    cfg = srv_mgr.get_server_config(name)
+    try:
+        print(f"[DEBUG] {datetime.now().isoformat()} API GET /api/server/{name}/config returning_keys={list(cfg.keys())}")
+    except Exception:
+        print(f"[DEBUG] API GET /api/server/{name}/config returning (unserializable)")
+    return jsonify(cfg)
+
+
+@app.route("/api/server/<name>/meta", methods=["POST"])
+@admin_required
+def set_server_meta(name):
+    """Met à jour la méta d'un serveur: version, server_type, loader_version, forge_version"""
+    data = request.json or {}
+    version = data.get('version')
+    server_type = data.get('server_type')
+    loader_version = data.get('loader_version')
+    forge_version = data.get('forge_version')
+    try:
+        ok = srv_mgr.set_server_meta(name, version=version, server_type=server_type, loader_version=loader_version, forge_version=forge_version)
+        if not ok:
+            return jsonify({"status": "error", "message": "Impossible de mettre à jour la méta"}), 400
+        auth_mgr._log_audit(session["user"]["username"], "SERVER_META_SET", f"{name}: {server_type}/{version}")
         return jsonify({"status": "success"})
-    return jsonify(srv_mgr.get_server_config(name))
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 
 @app.route("/api/server/<name>/backup", methods=["POST"])
@@ -1489,9 +2048,10 @@ def tunnel_providers():
     except Exception as e:
         # Providers par défaut en cas d'erreur
         default_providers = [
-            {"id": "localhost.run", "name": "localhost.run", "description": "SSH gratuit", "status": "available"},
+            {"id": "playit", "name": "playit.gg", "description": "Meilleur pour Minecraft", "status": "recommended"},
+            {"id": "ngrok", "name": "ngrok", "description": "TCP gratuit fiable", "status": "recommended"},
+            {"id": "bore", "name": "Bore", "description": "TCP léger en Rust", "status": "available"},
             {"id": "serveo", "name": "Serveo", "description": "SSH gratuit", "status": "available"},
-            {"id": "bore", "name": "Bore", "description": "TCP léger", "status": "available"},
             {"id": "manual", "name": "Port Manuel", "description": "Redirection manuelle", "status": "available"}
         ]
         return jsonify({"providers": default_providers, "error": str(e)})
@@ -1506,7 +2066,8 @@ def tunnel_start():
         data = request.json or {}
         port = data.get("port", 25565)
         provider = data.get("provider", None)
-        result = tunnel_mgr.start(provider=provider, port=port)
+        secret_key = data.get("secret_key", None)
+        result = tunnel_mgr.start(provider=provider, port=port, secret_key=secret_key)
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -1600,41 +2161,94 @@ def playit_logs():
         return jsonify({"logs": [], "error": str(e)})
 
 
-@app.route("/api/server/<name>/icon", methods=["POST"])
+@app.route("/api/tunnel/install/<provider>", methods=["POST"])
 @login_required
-def upload_server_icon(name):
-    if 'icon' not in request.files:
-        return jsonify({"status": "error", "message": "No file"}), 400
-    
-    file = request.files['icon']
-    # Validation basique
-    if not file.filename.lower().endswith(".png"):
-        return jsonify({"status": "error", "message": "Le fichier doit être un PNG"}), 400
-        
+def tunnel_install_provider(provider):
+    """Installe un provider de tunnel spécifique"""
     try:
-        # Use secure path to server root
-        server_dir = srv_mgr.file_mgr._get_secure_path(name, "")
-        icon_path = os.path.join(server_dir, "server-icon.png")
+        if tunnel_mgr is None:
+            return jsonify({"status": "error", "message": "Tunnel manager non initialisé"})
         
-        file.save(icon_path)
-        return jsonify({"status": "success", "message": "Icône mise à jour"})
+        if provider == "playit":
+            success = tunnel_mgr._install_playit()
+        elif provider == "ngrok":
+            success = tunnel_mgr._install_ngrok()
+        elif provider == "bore":
+            success = tunnel_mgr._install_bore()
+        elif provider == "cloudflared":
+            success = tunnel_mgr._install_cloudflared()
+        else:
+            return jsonify({"status": "error", "message": f"Provider inconnu: {provider}"})
+        
+        if success:
+            return jsonify({"status": "success", "message": f"{provider} installé avec succès"})
+        else:
+            return jsonify({"status": "error", "message": f"Échec de l'installation de {provider}"})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/tunnel/config", methods=["GET", "POST"])
+@login_required
+def tunnel_config():
+    """Configure les paramètres du tunnel (secret keys, etc.)"""
+    try:
+        if tunnel_mgr is None:
+            return jsonify({"status": "error", "message": "Tunnel manager non initialisé"})
+        
+        if request.method == "GET":
+            return jsonify({
+                "provider": tunnel_mgr.config.provider.value,
+                "local_port": tunnel_mgr.config.local_port,
+                "auto_reconnect": tunnel_mgr.config.auto_reconnect,
+                "has_playit_secret": bool(tunnel_mgr.config.playit_secret),
+                "has_ngrok_token": bool(tunnel_mgr.config.ngrok_authtoken)
+            })
+        else:
+            data = request.json or {}
+            if "playit_secret" in data:
+                tunnel_mgr.config.playit_secret = data["playit_secret"]
+            if "ngrok_authtoken" in data:
+                tunnel_mgr.config.ngrok_authtoken = data["ngrok_authtoken"]
+            if "auto_reconnect" in data:
+                tunnel_mgr.config.auto_reconnect = data["auto_reconnect"]
+            
+            tunnel_mgr._save_config()
+            return jsonify({"status": "success", "message": "Configuration mise à jour"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 
 @app.route("/api/server/<name>/icon/raw")
 @login_required
 def get_server_icon_raw(name):
     try:
-        server_dir = srv_mgr.file_mgr._get_secure_path(name, "")
+        server_dir = file_mgr._get_secure_path(name, "")
         icon_path = os.path.join(server_dir, "server-icon.png")
         if os.path.exists(icon_path):
-             return send_file(icon_path, mimetype='image/png')
+            return send_file(icon_path, mimetype='image/png')
         else:
-             # Return default icon or 404. Let's return 404 so frontend shows default.
-             return "Not found", 404
+            # Return a 200 with the default icon so the client doesn't log 404 errors
+            default_icon = os.path.join(app.static_folder or 'app/static', 'img', 'default_icon.svg')
+            if os.path.exists(default_icon):
+                return send_file(default_icon, mimetype='image/svg+xml')
+            return "Not found", 404
     except Exception as e:
-        return "Error", 500
+        print(f"[ERROR] get_server_icon_raw failed for {name}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/server/<name>/icon/status")
+@login_required
+def get_server_icon_status(name):
+    try:
+        server_dir = file_mgr._get_secure_path(name, "")
+        icon_path = os.path.join(server_dir, "server-icon.png")
+        exists = os.path.exists(icon_path)
+        return jsonify({"status": "success", "exists": exists, "path": icon_path if exists else None})
+    except Exception as e:
+        print(f"[ERROR] get_server_icon_status failed for {name}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ===================== MODS MANAGER =====================
@@ -2471,18 +3085,52 @@ def server_resourcepack(name):
 @login_required
 def server_icon(name):
     """Gère l'icône du serveur"""
-    icon_path = os.path.join(srv_mgr.base_dir, name, "server-icon.png")
+    # Determine icon path using FileManager to be consistent
+    try:
+        server_dir = file_mgr._get_secure_path(name, "")
+    except FileNotFoundError:
+        server_dir = os.path.join(file_mgr.base_dir, name)
+    icon_path = os.path.join(server_dir, "server-icon.png")
     
     if request.method == "POST":
         if 'icon' not in request.files:
             return jsonify({"status": "error", "message": "Aucune image envoyée"}), 400
-        
         file = request.files['icon']
+        try:
+            print(f"[ICON] Received upload for {name}: filename={file.filename}, content_type={file.content_type}")
+        except Exception:
+            pass
+
         if not file.filename.lower().endswith('.png'):
             return jsonify({"status": "error", "message": "L'image doit être un PNG"}), 400
-        
-        file.save(icon_path)
-        return jsonify({"status": "success", "message": "Icône mise à jour"})
+
+        os.makedirs(os.path.dirname(icon_path), exist_ok=True)
+
+        try:
+            file.save(icon_path)
+        except Exception as e:
+            print(f"[ERROR] saving icon for {name}: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+        try:
+            if Image is not None:
+                with Image.open(icon_path) as im:
+                    if im.mode not in ('RGBA', 'RGB'):
+                        im = im.convert('RGBA')
+                    if im.size != (64, 64):
+                        im = im.resize((64, 64), Image.LANCZOS)
+                        im.save(icon_path, format='PNG')
+            else:
+                try:
+                    print(f"[ICON] Saved icon for {name}, size={os.path.getsize(icon_path)} bytes")
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[ERROR] processing icon for {name}: {e}")
+            return jsonify({"status": "error", "message": "Upload ok but traitement image a échoué: " + str(e)}), 500
+
+        print(f"[ICON] Uploaded icon for server {name} -> {icon_path}")
+        return jsonify({"status": "success", "message": "Icône mise à jour", "path": icon_path})
     
     if os.path.exists(icon_path):
         return send_file(icon_path, mimetype='image/png')

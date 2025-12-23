@@ -8,6 +8,8 @@ import time
 import zipfile
 import tarfile
 from typing import List, Dict, Any
+from datetime import datetime
+from werkzeug.utils import secure_filename
 
 # Templates de serveurs pré-configurés
 SERVER_TEMPLATES = {
@@ -319,6 +321,67 @@ class ServerManager:
         print("[INFO] Utilisation des versions Paper par défaut")
         return fallback
     
+    def get_paper_build_info(self, version: str) -> Dict[str, Any]:
+        """Récupère les informations sur les builds Paper pour une version spécifique"""
+        from core.api_cache import cache
+        
+        cache_key = f'paper_builds_{version}'
+        cached = cache.get(cache_key, max_age_hours=6)  # Cache 6h pour les builds
+        if cached:
+            return cached
+        
+        try:
+            r = requests.get(f"https://api.papermc.io/v2/projects/paper/versions/{version}", timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            
+            builds = data.get("builds", [])
+            latest_build = builds[-1] if builds else None
+            
+            # Récupérer les détails du dernier build
+            build_info = {
+                "version": version,
+                "total_builds": len(builds),
+                "latest_build": latest_build,
+                "builds": builds[-10:] if len(builds) > 10 else builds,  # 10 derniers
+            }
+            
+            if latest_build:
+                try:
+                    detail_r = requests.get(
+                        f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{latest_build}",
+                        timeout=10
+                    )
+                    if detail_r.status_code == 200:
+                        detail = detail_r.json()
+                        build_info["latest_build_info"] = {
+                            "build": latest_build,
+                            "time": detail.get("time"),
+                            "channel": detail.get("channel"),
+                            "downloads": detail.get("downloads", {})
+                        }
+                except Exception:
+                    pass
+            
+            cache.set(cache_key, build_info)
+            return build_info
+            
+        except Exception as e:
+            print(f"[WARN] Erreur récupération builds Paper {version}: {e}")
+            return {"version": version, "error": str(e)}
+    
+    def get_paper_download_url(self, version: str, build: int = None) -> str:
+        """Génère l'URL de téléchargement Paper"""
+        if build is None:
+            # Récupérer le dernier build
+            build_info = self.get_paper_build_info(version)
+            build = build_info.get("latest_build")
+        
+        if not build:
+            raise Exception(f"Aucun build disponible pour Paper {version}")
+        
+        return f"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{build}/downloads/paper-{version}-{build}.jar"
+
     def get_forge_versions(self):
         """Récupère les versions Forge avec cache persistant (24h) + fallback"""
         from core.api_cache import cache
@@ -352,6 +415,100 @@ class ServerManager:
         print("[INFO] Forge API inaccessible - création serveurs Forge indisponible")
         return {}
     
+    def get_forge_builds(self, mc_version: str) -> Dict[str, Any]:
+        """Récupère tous les builds Forge pour une version MC"""
+        from core.api_cache import cache
+        
+        cache_key = f'forge_builds_{mc_version}'
+        cached = cache.get(cache_key, max_age_hours=12)
+        if cached:
+            return cached
+        
+        try:
+            # API Maven pour lister tous les builds
+            url = f"https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json"
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            
+            # Filtrer pour la version MC demandée
+            builds = []
+            for version_key in data.keys():
+                if version_key.startswith(f"{mc_version}-"):
+                    forge_ver = version_key.split("-", 1)[1]
+                    builds.append({
+                        "forge_version": forge_ver,
+                        "full_version": version_key,
+                        "mc_version": mc_version
+                    })
+            
+            builds.sort(key=lambda x: x["forge_version"], reverse=True)
+            
+            result = {
+                "mc_version": mc_version,
+                "builds": builds[:20],  # 20 derniers
+                "total": len(builds)
+            }
+            cache.set(cache_key, result)
+            return result
+            
+        except Exception as e:
+            print(f"[WARN] Erreur récupération builds Forge: {e}")
+            return {"mc_version": mc_version, "builds": [], "error": str(e)}
+    
+    def get_neoforge_versions(self) -> Dict[str, Any]:
+        """Récupère les versions NeoForge (fork moderne de Forge pour 1.20.1+)"""
+        from core.api_cache import cache
+        
+        cached = cache.get('neoforge_versions', max_age_hours=12)
+        if cached:
+            return cached
+        
+        try:
+            # API Maven NeoForge
+            r = requests.get("https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge", timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            
+            versions = data.get("versions", [])
+            
+            # Grouper par version MC (filtrer les versions non numériques)
+            grouped = {}
+            valid_versions = []
+            for v in versions:
+                # Format: 20.4.xxx pour MC 1.20.4, 21.0.xxx pour MC 1.21, etc.
+                # Ignorer les versions snapshot/expérimentales (ex: 25w14craftmine)
+                parts = v.split(".")
+                if len(parts) >= 2:
+                    try:
+                        major = int(parts[0])
+                        minor = int(parts[1])
+                        # Convertir en version MC
+                        if major >= 20:
+                            mc_ver = f"1.{major}.{minor}"
+                        else:
+                            mc_ver = f"1.{major}"
+                        
+                        if mc_ver not in grouped:
+                            grouped[mc_ver] = []
+                        grouped[mc_ver].append(v)
+                        valid_versions.append(v)
+                    except ValueError:
+                        # Ignorer les versions non numériques (snapshots)
+                        continue
+            
+            result = {
+                "versions": grouped,
+                "all_versions": valid_versions[-50:],  # 50 dernières
+                "total": len(valid_versions)
+            }
+            cache.set('neoforge_versions', result)
+            return result
+            
+        except Exception as e:
+            print(f"[WARN] NeoForge API indisponible: {e}")
+            return {"versions": {}, "all_versions": [], "error": str(e)}
+    
     def get_fabric_versions(self):
         """Récupère les versions Fabric avec cache persistant (24h) + fallback"""
         from core.api_cache import cache
@@ -373,7 +530,9 @@ class ServerManager:
             
             result = {
                 "loader": [l["version"] for l in loaders if l.get("stable")],
-                "game": [g["version"] for g in games if g.get("stable")]
+                "loader_all": [l["version"] for l in loaders],
+                "game": [g["version"] for g in games if g.get("stable")],
+                "game_all": [g["version"] for g in games]
             }
             cache.set('fabric_versions', result)
             return result
@@ -382,8 +541,68 @@ class ServerManager:
         
         # 3. Fallback vide
         print("[INFO] Fabric API inaccessible - création serveurs Fabric indisponible")
-        return {"loader": [], "game": []}
+        return {"loader": [], "loader_all": [], "game": [], "game_all": []}
     
+    def get_fabric_loader_for_game(self, mc_version: str) -> List[str]:
+        """Récupère les loaders Fabric compatibles avec une version MC (retourne les versions en strings)"""
+        from core.api_cache import cache
+        
+        cache_key = f'fabric_loaders_{mc_version}'
+        cached = cache.get(cache_key, max_age_hours=6)
+        if cached:
+            return cached
+        
+        try:
+            r = requests.get(
+                f"https://meta.fabricmc.net/v2/versions/loader/{mc_version}",
+                timeout=10
+            )
+            r.raise_for_status()
+            data = r.json()
+            
+            # Extraire uniquement les versions (strings) pour simplifier le frontend
+            result = []
+            for item in data:
+                loader = item.get("loader", {})
+                version = loader.get("version")
+                if version:
+                    result.append(version)
+            
+            cache.set(cache_key, result)
+            return result
+            
+        except Exception as e:
+            print(f"[WARN] Erreur récupération loaders Fabric: {e}")
+            return []
+    
+    def get_quilt_versions(self) -> Dict[str, Any]:
+        """Récupère les versions Quilt (fork de Fabric)"""
+        from core.api_cache import cache
+        
+        cached = cache.get('quilt_versions', max_age_hours=24)
+        if cached:
+            return cached
+        
+        try:
+            loader_r = requests.get("https://meta.quiltmc.org/v3/versions/loader", timeout=10)
+            loader_r.raise_for_status()
+            loaders = loader_r.json()
+            
+            game_r = requests.get("https://meta.quiltmc.org/v3/versions/game", timeout=10)
+            game_r.raise_for_status()
+            games = game_r.json()
+            
+            result = {
+                "loader": [l["version"] for l in loaders],
+                "game": [g["version"] for g in games if g.get("stable")]
+            }
+            cache.set('quilt_versions', result)
+            return result
+            
+        except Exception as e:
+            print(f"[WARN] Quilt API indisponible: {e}")
+            return {"loader": [], "game": []}
+
     def download_forge_server(self, path, mc_version, forge_version):
         """Télécharge le serveur Forge"""
         # Format: https://maven.minecraftforge.net/net/minecraftforge/forge/{mc}-{forge}/forge-{mc}-{forge}-installer.jar
@@ -439,6 +658,96 @@ class ServerManager:
         
         return True
 
+    def download_neoforge_server(self, path, mc_version, neoforge_version):
+        """Télécharge le serveur NeoForge"""
+        # NeoForge utilise un format similaire à Forge
+        # URL: https://maven.neoforged.net/releases/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar
+        url = f"https://maven.neoforged.net/releases/net/neoforged/neoforge/{neoforge_version}/neoforge-{neoforge_version}-installer.jar"
+        
+        installer_path = os.path.join(path, "neoforge-installer.jar")
+        try:
+            with requests.get(url, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                with open(installer_path, "wb") as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+            
+            # Run installer
+            print("[INFO] Running NeoForge installer...")
+            java_path = self.ensure_java_for_version(mc_version) or "java"
+            result = subprocess.run(
+                [java_path, "-jar", "neoforge-installer.jar", "--installServer"],
+                cwd=path,
+                capture_output=True,
+                timeout=300
+            )
+            
+            # Cleanup installer
+            if os.path.exists(installer_path):
+                os.remove(installer_path)
+            if os.path.exists(os.path.join(path, "neoforge-installer.jar.log")):
+                os.remove(os.path.join(path, "neoforge-installer.jar.log"))
+            
+            # Find the run script or jar
+            for f in os.listdir(path):
+                if f.startswith("neoforge-") and f.endswith(".jar") and "installer" not in f:
+                    shutil.move(os.path.join(path, f), os.path.join(path, "server.jar"))
+                    break
+            
+            return True
+        except Exception as e:
+            print(f"[ERROR] NeoForge download failed: {e}")
+            raise Exception(f"NeoForge download failed: {e}")
+
+    def download_quilt_server(self, path, mc_version, loader_version):
+        """Télécharge le serveur Quilt"""
+        # Get installer version
+        r = requests.get("https://meta.quiltmc.org/v3/versions/installer", timeout=10)
+        r.raise_for_status()
+        installer_version = r.json()[0]["version"]
+        
+        # Download quilt server launcher jar
+        url = f"https://meta.quiltmc.org/v3/versions/loader/{mc_version}/{loader_version}/installlerror-server/{installer_version}/server/jar"
+        jar_path = os.path.join(path, "server.jar")
+        
+        try:
+            with requests.get(url, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                with open(jar_path, "wb") as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+            return True
+        except Exception as e:
+            # Fallback: use quilt installer
+            print(f"[WARN] Quilt direct download failed, using installer: {e}")
+            installer_url = f"https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/{installer_version}/quilt-installer-{installer_version}.jar"
+            installer_path = os.path.join(path, "quilt-installer.jar")
+            
+            with requests.get(installer_url, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                with open(installer_path, "wb") as f:
+                    for chunk in r.iter_content(8192):
+                        f.write(chunk)
+            
+            java_path = self.ensure_java_for_version(mc_version) or "java"
+            subprocess.run(
+                [java_path, "-jar", "quilt-installer.jar", "install", "server", mc_version, loader_version, "--download-server", "--install-dir=."],
+                cwd=path,
+                capture_output=True,
+                timeout=300
+            )
+            
+            if os.path.exists(installer_path):
+                os.remove(installer_path)
+            
+            # Find quilt server jar
+            for f in os.listdir(path):
+                if f.startswith("quilt-server") and f.endswith(".jar"):
+                    shutil.move(os.path.join(path, f), os.path.join(path, "server.jar"))
+                    break
+            
+            return True
+
     def get_server_config(self, name):
         """Récupère la configuration personnalisée du serveur"""
         path = self._get_server_path(name)
@@ -452,12 +761,86 @@ class ServerManager:
         }
         try:
             if os.path.exists(config_path):
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    return {**default_config, **config}
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        raw = f.read()
+                    print(f"[DEBUG] get_server_config: raw content of {config_path}: {raw}")
+                    config = json.loads(raw)
+                except Exception as e:
+                    print(f"[WARN] Erreur lecture/parsing de {config_path}: {e}")
+                    # Fall back to trying to read as partial JSON or return defaults
+                    try:
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            config = json.load(f)
+                    except Exception as e2:
+                        print(f"[ERROR] get_server_config: second attempt failed for {config_path}: {e2}")
+                        config = {}
+                    # Auto-detect server type if missing
+                    if "server_type" not in config:
+                        config["server_type"] = self.detect_server_type(name)
+                    merged = {**default_config, **config}
+                    print(f"[DEBUG] get_server_config {name}: {merged}")
+                    return merged
         except Exception as e:
             print(f"[WARN] Erreur lecture config {name}: {e}")
         return default_config
+
+    def detect_server_type(self, name) -> str:
+        """
+        Détecte le type de serveur (paper, forge, fabric, neoforge, quilt) en analysant les fichiers.
+        Retourne 'paper' par défaut si impossible à déterminer.
+        """
+        path = self._get_server_path(name)
+        
+        # 1. Vérifier l'existence du dossier mods vs plugins
+        has_mods = os.path.exists(os.path.join(path, "mods"))
+        has_plugins = os.path.exists(os.path.join(path, "plugins"))
+        
+        # 2. Chercher des fichiers spécifiques
+        files = os.listdir(path) if os.path.exists(path) else []
+        files_lower = [f.lower() for f in files]
+        
+        # Forge: présence de forge-*.jar, libraries/net/minecraftforge, ou fichiers run.bat/run.sh spécifiques
+        if any("forge" in f and f.endswith(".jar") for f in files_lower):
+            return "forge"
+        if os.path.exists(os.path.join(path, "libraries", "net", "minecraftforge")):
+            return "forge"
+        
+        # NeoForge: présence de neoforge-*.jar ou libraries/net/neoforged
+        if any("neoforge" in f and f.endswith(".jar") for f in files_lower):
+            return "neoforge"
+        if os.path.exists(os.path.join(path, "libraries", "net", "neoforged")):
+            return "neoforge"
+        
+        # Fabric: présence de fabric-server-*.jar, .fabric dans le dossier, ou fabric.mod.json dans les libs
+        if any("fabric" in f and f.endswith(".jar") for f in files_lower):
+            return "fabric"
+        if os.path.exists(os.path.join(path, ".fabric")):
+            return "fabric"
+        
+        # Quilt: présence de quilt-*.jar ou .quilt
+        if any("quilt" in f and f.endswith(".jar") for f in files_lower):
+            return "quilt"
+        if os.path.exists(os.path.join(path, ".quilt")):
+            return "quilt"
+        
+        # 3. Analyser le contenu des mods s'il y en a
+        if has_mods and os.path.exists(os.path.join(path, "mods")):
+            mods_list = os.listdir(os.path.join(path, "mods"))
+            if len(mods_list) > 0:
+                # Si mods présents mais pas de détection Forge/NeoForge, c'est probablement Fabric
+                return "fabric"
+        
+        # 4. Paper / Spigot / Bukkit: présence de plugins ou paper-*.jar, spigot-*.jar
+        if any("paper" in f and f.endswith(".jar") for f in files_lower):
+            return "paper"
+        if any("spigot" in f and f.endswith(".jar") for f in files_lower):
+            return "paper"  # Spigot = compatible Paper
+        if has_plugins and not has_mods:
+            return "paper"
+        
+        # Default
+        return "paper"
 
     def save_server_config(self, name, config):
         """Sauvegarde la configuration du serveur"""
@@ -466,12 +849,42 @@ class ServerManager:
         try:
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
+            try:
+                # Log a concise debug summary for tracing who/when overwrites config
+                snippet = json.dumps(config, ensure_ascii=False)
+                if len(snippet) > 200:
+                    snippet = snippet[:200] + '...'
+            except Exception:
+                snippet = '<unserializable>'
+            print(f"[DEBUG] save_server_config {name} @ {datetime.now().isoformat()} keys={list(config.keys())} has_server_type={('server_type' in config)} has_version={('version' in config)} snippet={snippet}")
             return True
         except Exception as e:
             print(f"[ERROR] Erreur sauvegarde config {name}: {e}")
             return False
 
-    def create_server(self, name, version, ram_min="1G", ram_max="2G", storage_limit=None, base_path=None, server_type="paper", loader_version=None, owner="admin"):
+    def set_server_meta(self, name, version=None, server_type=None, loader_version=None, forge_version=None):
+        """Mets à jour la méta du serveur (version, type, loader/forge).
+
+        Les champs fournis remplacent ceux présents dans la config. La fonction
+        valide le server_type connu et sauvegarde la configuration.
+        """
+        valid_types = ['paper', 'forge', 'fabric', 'neoforge', 'quilt']
+        cfg = self.get_server_config(name)
+
+        if version:
+            cfg['version'] = version
+        if server_type:
+            if server_type not in valid_types:
+                raise Exception(f"Type de serveur inconnu: {server_type}")
+            cfg['server_type'] = server_type
+        if loader_version:
+            cfg['loader_version'] = loader_version
+        if forge_version:
+            cfg['forge_version'] = forge_version
+
+        return self.save_server_config(name, cfg)
+
+    def create_server(self, name, version, ram_min="1G", ram_max="2G", storage_limit=None, base_path=None, server_type="paper", loader_version=None, forge_version=None, owner="admin"):
         """Crée un nouveau serveur avec options personnalisées"""
         # Utiliser le base_path personnalisé si fourni
         if base_path:
@@ -494,24 +907,50 @@ class ServerManager:
         
         try:
             if server_type == "forge":
-                if not loader_version:
+                # Accept explicit forge_version param (preferred) or fallback to loader_version for backward compat
+                target_forge = forge_version or loader_version
+                if not target_forge:
                     # Get latest forge version
                     forge_versions = self.get_forge_versions()
                     mc_forge = forge_versions.get(version, {})
-                    loader_version = mc_forge.get("recommended") or mc_forge.get("latest")
-                    if not loader_version:
+                    target_forge = mc_forge.get("recommended") or mc_forge.get("latest")
+                    if not target_forge:
                         raise Exception(f"No Forge for MC {version}")
-                
-                self.download_forge_server(path, version, loader_version)
+
+                self.download_forge_server(path, version, target_forge)
                 
             elif server_type == "fabric":
-                if not loader_version:
+                # loader_version is the Fabric loader version; accept explicitly
+                target_loader = loader_version
+                if not target_loader:
                     fabric = self.get_fabric_versions()
-                    loader_version = fabric["loader"][0] if fabric["loader"] else None
-                    if not loader_version:
+                    target_loader = fabric["loader"][0] if fabric["loader"] else None
+                    if not target_loader:
                         raise Exception("No Fabric loader found")
-                
-                self.download_fabric_server(path, version, loader_version)
+
+                self.download_fabric_server(path, version, target_loader)
+
+            elif server_type == "neoforge":
+                # NeoForge - utiliser Forge download pour l'instant (peut être amélioré)
+                target_neoforge = forge_version or loader_version
+                if not target_neoforge:
+                    neoforge_data = self.get_neoforge_versions()
+                    neoforge_versions = neoforge_data.get("versions", {})
+                    mc_neoforge = neoforge_versions.get(version, {})
+                    target_neoforge = mc_neoforge.get("recommended") or mc_neoforge.get("latest")
+                    if not target_neoforge:
+                        raise Exception(f"No NeoForge for MC {version}")
+                # NeoForge uses similar installer pattern
+                self.download_neoforge_server(path, version, target_neoforge)
+
+            elif server_type == "quilt":
+                target_loader = loader_version
+                if not target_loader:
+                    quilt = self.get_quilt_versions()
+                    target_loader = quilt["loader"][0] if quilt.get("loader") else None
+                    if not target_loader:
+                        raise Exception("No Quilt loader found")
+                self.download_quilt_server(path, version, target_loader)
                 
             else:  # paper (default)
                 v_url = f"https://api.papermc.io/v2/projects/paper/versions/{version}"
@@ -565,6 +1004,9 @@ class ServerManager:
         
         if loader_version:
             config["loader_version"] = loader_version
+
+        if forge_version:
+            config["forge_version"] = forge_version
         
         if storage_limit:
             config["storage_limit_gb"] = storage_limit

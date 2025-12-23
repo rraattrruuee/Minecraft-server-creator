@@ -118,6 +118,24 @@ label {
     display: flex;
     flex-direction: column;
     gap: 8px;
+.server-detail-icon img.icon-updated {
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+    transition: box-shadow 0.4s ease-in-out;
+}
+.server-detail-icon.loading::after {
+    content: "";
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.12);
+    border-top-color: rgba(59,130,246,0.9);
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
     height: 100vh;
     overflow-y: auto;
     overflow-x: hidden;
@@ -556,6 +574,50 @@ label {
     align-items: center;
     gap: 8px;
     transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+/* ================================
+   SEARCH BOX (Mods panel)
+   ================================ */
+.search-box {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+    padding: 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border-muted);
+    box-shadow: var(--shadow-sm);
+}
+.search-box input[type="text"] {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font-size: 14px;
+    min-width: 220px;
+    outline: none;
+}
+.search-box input[type="text"]::placeholder {
+    color: var(--text-muted);
+}
+.search-box .btn-primary {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.03);
+    color: var(--primary);
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.search-box .btn-primary:hover {
+    background: var(--primary-glow);
+    transform: translateY(-1px);
+}
+.search-box .btn-primary i { color: var(--primary); }
+
+@media (max-width: 720px) {
+    .search-box { width: 100%; }
+    .search-box input[type="text"] { min-width: 0; flex: 1; }
 }
 
 .btn-secondary:hover,
@@ -4983,6 +5045,7 @@ textarea:focus {
     margin: 8px 0;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -5470,6 +5533,7 @@ textarea:focus {
 .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }

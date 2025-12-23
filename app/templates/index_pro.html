@@ -204,13 +204,24 @@
                         <i class="fas fa-arrow-left"></i> <span data-i18n="actions.back">Retour</span>
                     </button>
                     <div class="server-info">
-                        <div id="server-detail-icon" onclick="initiateIconUpload()" title="Changer l'icône"
-                            style="cursor: pointer; width: 64px; height: 64px; margin-right: 15px; border-radius: 8px; overflow: hidden; background: #333; display: flex; align-items: center; justify-content: center;">
+                        <button id="server-detail-icon" type="button" onclick="initiateIconUpload()" title="Changer l'icône" aria-label="Changer l'icône"
+                            class="server-detail-icon" style="cursor: pointer; width: 64px; height: 64px; margin-right: 15px; border-radius: 8px; overflow: hidden; background: #333; display: flex; align-items: center; justify-content: center;">
                             <img src="" alt="Icon" style="width: 100%; height: 100%; object-fit: cover;"
-                                onerror="this.onerror=null;this.src='/static/img/default_icon.png'">
-                        </div>
+                                onerror="this.onerror=null;this.src='/static/img/default_icon.svg'">
+                        </button>
                         <div>
                             <h2 id="detail-server-name">Serveur</h2>
+                            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+                                <div id="server-version-badge" class="status-badge" style="padding:4px 8px;font-size:0.85em;background:rgba(255,255,255,0.04);">
+                                    <span id="server-version-text">—</span>
+                                </div>
+                            </div>
+                            <!-- Debug: affichage rapide de la config renvoyée par l'API (visible temporairement) -->
+                            <div id="server-config-debug" style="display:none;margin-top:8px;background:rgba(0,0,0,0.04);padding:8px;border-radius:6px;font-size:0.82em;max-height:180px;overflow:auto;color:#e6eef8;">
+                                <!-- header and actions will be filled dynamically -->
+                                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"></div>
+                                <pre class="server-config-json" style="margin:0;white-space:pre-wrap;word-break:break-word;background:transparent;border:none;color:#cbd5e1;padding-top:6px"></pre>
+                            </div>
                             <div class="status-badge offline" id="detail-status">
                                 <span class="status-dot"></span>
                                 <span id="detail-status-text">OFFLINE</span>
@@ -255,6 +266,10 @@
                             data-i18n-title="actions.config" title="Paramètres serveur">
                             <i class="fas fa-cog"></i>
                             <span class="action-label" data-i18n="actions.config">Config</span>
+                        </button>
+                        <button class="action-btn" id="btn-update-server" onclick="manualUpdateServerConfig()" title="Mettre à jour la config">
+                            <i class="fas fa-sync-alt"></i>
+                            <span class="action-label">Mettre à jour</span>
                         </button>
                         <button class="action-btn danger" onclick="deleteServer()" data-i18n-title="actions.delete"
                             title="Supprimer">
@@ -403,9 +418,25 @@
                     <div id="view-config" class="view">
                         <div class="config-header">
                             <h3>Configuration</h3>
-                            <button class="btn-save-config" onclick="saveConfig()">
-                                <i class="fas fa-save"></i> Enregistrer
-                            </button>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <button class="btn-save-config" onclick="saveConfig()">
+                                    <i class="fas fa-save"></i> Enregistrer
+                                </button>
+                                <!-- Server meta (version/type) -->
+                                <div style="display:flex;gap:6px;align-items:center;padding-left:10px">
+                                    <input id="server-meta-version" placeholder="Version MC" class="input-small" style="width:120px"/>
+                                    <select id="server-meta-type" class="select-small">
+                                        <option value="paper">Paper</option>
+                                        <option value="forge">Forge</option>
+                                        <option value="fabric">Fabric</option>
+                                        <option value="neoforge">NeoForge</option>
+                                        <option value="quilt">Quilt</option>
+                                    </select>
+                                    <input id="server-meta-loader" placeholder="Loader (opt.)" class="input-small" style="width:120px"/>
+                                    <input id="server-meta-forge" placeholder="Forge (opt.)" class="input-small" style="width:120px"/>
+                                    <button class="btn-secondary" onclick="saveServerMetaFromUI()">Sauvegarder méta</button>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="config-section"
@@ -447,9 +478,9 @@
                         </div>
 
                         <div class="search-box">
-                            <input type="text" id="mods-search-input" placeholder="Rechercher un mod..."
-                                onkeyup="if(event.key === 'Enter') searchMods()">
-                            <button class="btn-primary" onclick="searchMods()"><i class="fas fa-search"></i></button>
+                            <input type="text" id="mods-search-input-panel" placeholder="Rechercher un mod..."
+                                onkeyup="if(event.key === 'Enter') searchMods(this.value)">
+                            <button class="btn-primary" onclick="searchModsAdmin()"><i class="fas fa-search"></i></button>
                         </div>
 
                         <div id="mods-results-container" class="settings-grid"
@@ -608,9 +639,9 @@
 
                         <div class="visual-options">
                             <div class="setting-row">
-                                <label><i class="fas fa-lightbulb"></i> Fullbright (Luminosité max)</label>
+                                <label for="fullbright-toggle"><i class="fas fa-lightbulb"></i> Fullbright (Luminosité max)</label>
                                 <label class="switch">
-                                    <input type="checkbox" id="fullbright-toggle"
+                                    <input type="checkbox" id="fullbright-toggle" class="fullbright-toggle"
                                         onchange="toggleFullbright(this.checked)">
                                     <span class="slider"></span>
                                 </label>
@@ -662,33 +693,27 @@
                     </div>
                     <div class="settings-content">
                         <div class="perf-modes">
-                            <div class="perf-mode-card" onclick="setPerformanceMode('eco')">
-                                <input type="radio" name="perf-mode" value="eco" id="perf-eco">
-                                <label for="perf-eco">
-                                    <i class="fas fa-leaf"></i>
-                                    <span class="mode-name">ECO</span>
-                                    <span class="mode-desc">CPU minimal</span>
-                                </label>
-                            </div>
-                            <div class="perf-mode-card" onclick="setPerformanceMode('balanced')">
-                                <input type="radio" name="perf-mode" value="balanced" id="perf-balanced" checked>
-                                <label for="perf-balanced">
-                                    <i class="fas fa-balance-scale"></i>
-                                    <span class="mode-name">ÉQUILIBRÉ</span>
-                                    <span class="mode-desc">Recommandé</span>
-                                </label>
-                            </div>
-                            <div class="perf-mode-card" onclick="setPerformanceMode('gpu')">
-                                <input type="radio" name="perf-mode" value="gpu" id="perf-gpu">
-                                <label for="perf-gpu">
-                                    <i class="fas fa-bolt"></i>
-                                    <span class="mode-name">MAX</span>
-                                    <span class="mode-desc">GPU requis</span>
-                                </label>
-                            </div>
+                            <label class="perf-mode-card">
+                                <input type="radio" name="perf-mode" value="eco" id="perf-eco" onchange="setPerformanceMode(this.value)">
+                                <i class="fas fa-leaf"></i>
+                                <span class="mode-name">ECO</span>
+                                <span class="mode-desc">CPU minimal</span>
+                            </label>
+                            <label class="perf-mode-card">
+                                <input type="radio" name="perf-mode" value="balanced" id="perf-balanced" checked onchange="setPerformanceMode(this.value)">
+                                <i class="fas fa-balance-scale"></i>
+                                <span class="mode-name">ÉQUILIBRÉ</span>
+                                <span class="mode-desc">Recommandé</span>
+                            </label>
+                            <label class="perf-mode-card">
+                                <input type="radio" name="perf-mode" value="gpu" id="perf-gpu" onchange="setPerformanceMode(this.value)">
+                                <i class="fas fa-bolt"></i>
+                                <span class="mode-name">MAX</span>
+                                <span class="mode-desc">GPU requis</span>
+                            </label>
                         </div>
                         <div class="setting-row gpu-option">
-                            <label><i class="fas fa-video"></i> Carte graphique</label>
+                            <label for="gpu-toggle"><i class="fas fa-video"></i> Carte graphique</label>
                             <label class="switch">
                                 <input type="checkbox" id="gpu-toggle" checked onchange="toggleGPU(this.checked)">
                                 <span class="slider"></span>
@@ -704,7 +729,7 @@
                     </div>
                     <div class="settings-content">
                         <div class="setting-row">
-                            <label>Thème</label>
+                            <div class="setting-label">Thème</div>
                             <div class="theme-toggle">
                                 <button class="theme-btn active" data-theme="dark" onclick="setTheme('dark')">
                                     <i class="fas fa-moon"></i> Sombre
@@ -715,7 +740,7 @@
                             </div>
                         </div>
                         <div class="setting-row">
-                            <label>Langue</label>
+                            <label for="lang-select">Langue</label>
                             <select id="lang-select" onchange="changeLanguage(this.value)">
                                 <option value="fr">🇫🇷 Français</option>
                                 <option value="en">🇬🇧 English</option>
@@ -732,17 +757,17 @@
                     </div>
                     <div class="settings-content">
                         <div class="setting-row">
-                            <label>RAM par défaut (MB)</label>
+                            <label for="default-ram">RAM par défaut (MB)</label>
                             <input type="number" id="default-ram" value="2048" min="1024" step="512"
                                 class="setting-input">
                         </div>
                         <div class="setting-row">
-                            <label>Port par défaut</label>
+                            <label for="default-port">Port par défaut</label>
                             <input type="number" id="default-port" value="25565" min="1024" max="65535"
                                 class="setting-input">
                         </div>
                         <div class="setting-row">
-                            <label>Démarrage auto</label>
+                            <label for="autostart-toggle">Démarrage auto</label>
                             <label class="switch">
                                 <input type="checkbox" id="autostart-toggle">
                                 <span class="slider"></span>
@@ -863,9 +888,9 @@
                         <div class="setting-row">
                             <label>Discord Webhook</label>
                             <div class="input-with-btn">
-                                <input type="text" id="discord-webhook"
+                                <input type="text" id="discord-webhook-settings"
                                     placeholder="https://discord.com/api/webhooks/...">
-                                <button class="btn-test" onclick="testDiscord()">Test</button>
+                                <button class="btn-test" onclick="testDiscordSettings()">Test</button>
                             </div>
                         </div>
                     </div>
@@ -975,11 +1000,39 @@
                 <div class="form-group">
                     <label>Nom du serveur</label>
                     <input type="text" id="server-name-input" placeholder="mon-serveur" required
-                        pattern="[a-zA-Z0-9_-]+" class="input-large">
+                        pattern="[A-Za-z0-9_\-]+" class="input-large">
                 </div>
                 <div class="form-group">
                     <label>Version Minecraft</label>
                     <select id="server-version" required class="select-large"></select>
+                </div>
+                <div class="form-group">
+                    <label>Type de serveur</label>
+                    <select id="server-type" class="select-large" onchange="onServerTypeChangeDebounced()">
+                        <option value="paper">Paper</option>
+                        <option value="forge">Forge</option>
+                        <option value="fabric">Fabric</option>
+                        <option value="neoforge">NeoForge</option>
+                        <option value="quilt">Quilt</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="forge-version-group" style="display:none">
+                    <label>Version Forge</label>
+                    <select id="forge-version" class="select-large"></select>
+                </div>
+
+                <div class="form-group" id="fabric-loader-group" style="display:none">
+                    <label>Loader Fabric</label>
+                    <select id="fabric-loader" class="select-large"></select>
+                </div>
+
+                <!-- Mods selection removed from creation modal -->
+
+                <div class="form-group" id="mod-job-status" style="display:none">
+                    <label>Statut d'installation</label>
+                    <div id="job-status-box">Job: <span id="job-id-display">-</span> <span id="job-status-text">-</span></div>
+                    <div id="job-logs" class="job-logs"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1106,13 +1159,13 @@
 
                 <!-- Inventory Tabs -->
                 <div class="inventory-tabs">
-                    <button class="inv-tab active" onclick="switchInventoryTab('inventory')">
+                    <button class="inv-tab active" onclick="switchInventoryTab('inventory', this)">
                         <i class="fas fa-box"></i> Inventaire
                     </button>
-                    <button class="inv-tab" onclick="switchInventoryTab('enderchest')">
+                    <button class="inv-tab" onclick="switchInventoryTab('enderchest', this)">
                         <i class="fas fa-chest"></i> Enderchest
                     </button>
-                    <button class="inv-tab" onclick="switchInventoryTab('armor')">
+                    <button class="inv-tab" onclick="switchInventoryTab('armor', this)">
                         <i class="fas fa-shield-alt"></i> Armure
                     </button>
                 </div>
@@ -1197,7 +1250,7 @@
                     <h4><i class="fas fa-server"></i> <span data-i18n="tunnel.select_provider">Choisir un
                             fournisseur</span></h4>
                     <div class="provider-grid">
-                        <div class="provider-card" onclick="startTunnel('localhost_run')">
+                        <button type="button" class="provider-card" onclick="startTunnel('localhost_run')">
                             <div class="provider-icon">
                                 <i class="fas fa-rocket"></i>
                             </div>
@@ -1206,8 +1259,8 @@
                                 <span class="provider-desc">SSH tunnel rapide</span>
                             </div>
                             <div class="provider-badge">Recommandé</div>
-                        </div>
-                        <div class="provider-card" onclick="startTunnel('bore')">
+                        </button>
+                        <button type="button" class="provider-card" onclick="startTunnel('bore')">
                             <div class="provider-icon">
                                 <i class="fas fa-bolt"></i>
                             </div>
@@ -1215,8 +1268,8 @@
                                 <span class="provider-name" data-i18n="tunnel.bore">Bore</span>
                                 <span class="provider-desc">TCP tunnel léger</span>
                             </div>
-                        </div>
-                        <div class="provider-card" onclick="startTunnel('serveo')">
+                        </button>
+                        <button type="button" class="provider-card" onclick="startTunnel('serveo')">
                             <div class="provider-icon">
                                 <i class="fas fa-globe"></i>
                             </div>
@@ -1224,8 +1277,8 @@
                                 <span class="provider-name" data-i18n="tunnel.serveo">Serveo</span>
                                 <span class="provider-desc">SSH alternatif</span>
                             </div>
-                        </div>
-                        <div class="provider-card" onclick="startTunnel('cloudflared')">
+                        </button>
+                        <button type="button" class="provider-card" onclick="startTunnel('cloudflared')">
                             <div class="provider-icon">
                                 <i class="fas fa-cloud"></i>
                             </div>
@@ -1233,8 +1286,8 @@
                                 <span class="provider-name" data-i18n="tunnel.cloudflared">Cloudflare</span>
                                 <span class="provider-desc">Tunnel sécurisé</span>
                             </div>
-                        </div>
-                        <div class="provider-card" onclick="showManualTunnel()">
+                        </button>
+                        <button type="button" class="provider-card" onclick="showManualTunnel()">
                             <div class="provider-icon">
                                 <i class="fas fa-cog"></i>
                             </div>
@@ -1242,7 +1295,7 @@
                                 <span class="provider-name" data-i18n="tunnel.manual">Manuel</span>
                                 <span class="provider-desc" data-i18n="tunnel.manual_desc">Port forwarding</span>
                             </div>
-                        </div>
+                        </button>
                     </div>
                 </div>
 
@@ -1280,7 +1333,7 @@
                 </div>
                 <div class="form-group">
                     <label>Mot de passe</label>
-                    <input type="password" id="new-password" required minlength="4">
+                    <input type="password" id="new-user-password" required minlength="4">
                 </div>
                 <div class="form-group">
                     <label>Rôle</label>
@@ -1354,10 +1407,10 @@
                 </div>
 
                 <!-- Fullbright -->
-                <div class="form-group-checkbox"
-                    style="margin-bottom: 30px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px;">
+                        <div class="form-group-checkbox"
+                            style="margin-bottom: 30px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px;">
                     <label class="switch">
-                        <input type="checkbox" id="fullbright-toggle">
+                        <input type="checkbox" id="fullbright-toggle-appearance" class="fullbright-toggle">
                         <span class="slider round"></span>
                     </label>
                     <span>Fullbright (Voir dans le noir)</span>
