@@ -270,14 +270,12 @@ docs/_build/
 # Profiling
 *.prof
 
-# Gemini artifacts (éviter de commit mes notes)
+# Gemini artifacts
 .gemini/
 
 # Tests artifacts
 test_results/
 .test_cache/
 data/notifications_history.json
-data/notifications_history.json
-data/notifications_history.json
-data/notifications_history.json
+
 data/notifications_history.json
