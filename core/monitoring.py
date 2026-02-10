@@ -220,7 +220,7 @@ class ServerMonitor:
                 self._check_system_health()
             except Exception as e:
                 print(f"[MONITOR] Erreur: {e}")
-            time.sleep(5)  # Check toutes les 5 secondes
+            time.sleep(3600)  # Check toutes les 3600 secondes (1 heure)
     
     def _check_servers(self):
         """Vérifie l'état de chaque serveur"""
