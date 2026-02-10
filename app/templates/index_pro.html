@@ -957,144 +957,6 @@
         </div>
 
         <div class="settings-grid">
-          <!-- CARTE EFFETS VISUELS - SHADERS -->
-          <div class="settings-card settings-card-wide shader-card">
-            <div class="settings-card-header">
-              <i class="fas fa-magic"></i>
-              <h3>Effets Visuels & Shaders</h3>
-            </div>
-            <div class="settings-content">
-              <p class="settings-description">
-                🎮 Activez des effets visuels inspirés d'Optifine/Iris pour une
-                expérience immersive !
-              </p>
-
-              <div class="shader-presets">
-                <button
-                  class="shader-preset-btn"
-                  onclick="setShaderPreset('none')"
-                  data-shader="none"
-                >
-                  <i class="fas fa-times-circle"></i>
-                  <span>Désactivé</span>
-                </button>
-                <button
-                  class="shader-preset-btn"
-                  onclick="setShaderPreset('bloom')"
-                  data-shader="bloom"
-                >
-                  <i class="fas fa-sun"></i>
-                  <span>Bloom</span>
-                </button>
-                <button
-                  class="shader-preset-btn"
-                  onclick="setShaderPreset('neon')"
-                  data-shader="neon"
-                >
-                  <i class="fas fa-lightbulb"></i>
-                  <span>Néon</span>
-                </button>
-                <button
-                  class="shader-preset-btn"
-                  onclick="setShaderPreset('chromatic')"
-                  data-shader="chromatic"
-                >
-                  <i class="fas fa-adjust"></i>
-                  <span>Chromatique</span>
-                </button>
-                <button
-                  class="shader-preset-btn"
-                  onclick="setShaderPreset('vignette')"
-                  data-shader="vignette"
-                >
-                  <i class="fas fa-circle"></i>
-                  <span>Vignette</span>
-                </button>
-                <button
-                  class="shader-preset-btn"
-                  onclick="setShaderPreset('scanlines')"
-                  data-shader="scanlines"
-                >
-                  <i class="fas fa-tv"></i>
-                  <span>CRT</span>
-                </button>
-              </div>
-
-              <div class="visual-options">
-                <div class="setting-row">
-                  <label for="fullbright-toggle"
-                    ><i class="fas fa-lightbulb"></i> Fullbright (Luminosité
-                    max)</label
-                  >
-                  <label class="switch">
-                    <input
-                      type="checkbox"
-                      id="fullbright-toggle"
-                      class="fullbright-toggle"
-                      onchange="toggleFullbright(this.checked)"
-                    />
-                    <span class="slider"></span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- CARTE UPSCALING / DLSS -->
-          <div class="settings-card upscaling-card">
-            <div class="settings-card-header">
-              <i class="fas fa-expand-arrows-alt"></i>
-              <h3>Upscaling (DLSS/FSR)</h3>
-            </div>
-            <div class="settings-content">
-              <p class="settings-description">
-                Simule les technologies d'upscaling comme NVIDIA DLSS ou AMD
-                FSR.
-              </p>
-              <div class="upscaling-modes">
-                <button
-                  class="upscaling-btn active"
-                  onclick="setUpscaling('off')"
-                  data-upscaling="off"
-                >
-                  <span class="upscaling-name">OFF</span>
-                </button>
-                <button
-                  class="upscaling-btn"
-                  onclick="setUpscaling('quality')"
-                  data-upscaling="quality"
-                >
-                  <span class="upscaling-name">Qualité</span>
-                  <span class="upscaling-tech">DLSS</span>
-                </button>
-                <button
-                  class="upscaling-btn"
-                  onclick="setUpscaling('balanced')"
-                  data-upscaling="balanced"
-                >
-                  <span class="upscaling-name">Équilibré</span>
-                  <span class="upscaling-tech">DLSS</span>
-                </button>
-                <button
-                  class="upscaling-btn"
-                  onclick="setUpscaling('performance')"
-                  data-upscaling="performance"
-                >
-                  <span class="upscaling-name">Performance</span>
-                  <span class="upscaling-tech">DLSS</span>
-                </button>
-                <button
-                  class="upscaling-btn"
-                  onclick="setUpscaling('fsr')"
-                  data-upscaling="fsr"
-                >
-                  <span class="upscaling-name">FSR</span>
-                  <span class="upscaling-tech">AMD</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
           <!-- CARTE PERFORMANCE -->
           <div class="settings-card perf-card">
             <div class="settings-card-header">
@@ -1141,20 +1003,6 @@
                   <span class="mode-desc">GPU requis</span>
                 </label>
               </div>
-              <div class="setting-row gpu-option">
-                <label for="gpu-toggle"
-                  ><i class="fas fa-video"></i> Carte graphique</label
-                >
-                <label class="switch">
-                  <input
-                    type="checkbox"
-                    id="gpu-toggle"
-                    checked
-                    onchange="toggleGPU(this.checked)"
-                  />
-                  <span class="slider"></span>
-                </label>
-              </div>
             </div>
           </div>
 
@@ -1170,14 +1018,14 @@
                   <button
                     class="theme-btn active"
                     data-theme="dark"
-                    onclick="setTheme('dark')"
+                    onclick="themeManager.set('dark')"
                   >
                     <i class="fas fa-moon"></i> Sombre
                   </button>
                   <button
                     class="theme-btn"
                     data-theme="light"
-                    onclick="setTheme('light')"
+                    onclick="themeManager.set('light')"
                   >
                     <i class="fas fa-sun"></i> Clair
                   </button>
@@ -1185,7 +1033,11 @@
               </div>
               <div class="setting-row">
                 <label for="lang-select">Langue</label>
-                <select id="lang-select" onchange="changeLanguage(this.value)">
+                <select
+                  id="lang-select"
+                  onchange="changeLanguage(this.value)"
+                  class="setting-select"
+                >
                   <option value="fr">🇫🇷 Français</option>
                   <option value="en">🇬🇧 English</option>
                   <option value="es">🇪🇸 Español</option>
@@ -1339,7 +1191,7 @@
                 </p>
               </div>
 
-              <div id="ip-config">
+              <div id="ip-config" class="settings-content">
                 <div class="setting-row">
                   <label>IP publique ou domaine</label>
                   <input
@@ -1388,15 +1240,20 @@
               </div>
               <div class="setting-row">
                 <label>Discord Webhook</label>
-                <div class="input-with-btn">
+                <div class="settings-content">
                   <input
                     type="text"
                     id="discord-webhook-settings"
                     placeholder="https://discord.com/api/webhooks/..."
+                    class="setting-input"
                   />
-                  <button class="btn-test" onclick="testDiscordSettings()">
-                    Test
-                  </button>
+                  <div
+                    class="display: flex;align-items: center;justify-content: space-between;"
+                  >
+                    <button class="btn-primary" onclick="testDiscordSettings()">
+                      Test
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1498,9 +1355,9 @@
             </div>
             <div class="settings-content">
               <div class="about-info">
-                <p><strong>Manager Pro</strong> v1.0.0</p>
+                <p><strong>MCPanel</strong> v0.2.5</p>
                 <p>Gestionnaire de serveurs Minecraft</p>
-                <p class="text-muted">© 2025 - Tous droits réservés</p>
+                <p class="text-muted">© 2026 - Tous droits réservés</p>
               </div>
             </div>
           </div>
@@ -2219,7 +2076,5 @@
 
     <!-- Main loader for modularized MCP scripts (created by refactor) -->
     <script src="/static/js/main.js"></script>
-
-    <script src="/static/app_pro.js"></script>
   </body>
 </html>

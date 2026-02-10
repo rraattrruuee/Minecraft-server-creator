@@ -155,7 +155,7 @@ class NotificationManager:
                 "color": colors.get(notification["severity"], 0x3498db),
                 "timestamp": notification["timestamp"],
                 "footer": {
-                    "text": f"Minecraft Server Manager Pro"
+                    "text": f"Minecraft Server (MCPanel)"
                 }
             }
             
