@@ -275,7 +275,7 @@ docs/_build/
 
 # Tests artifacts
 test_results/
-.test_cache/
-data/notifications_history.json
+.test_cache/4
 
 data/notifications_history.json
+
