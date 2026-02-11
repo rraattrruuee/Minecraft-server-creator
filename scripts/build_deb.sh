@@ -2,24 +2,23 @@
 set -euo pipefail
 
 # Simple .deb builder for MCPanel (expects to be run from repo root)
-# Produces dist/mcpanel_VERSION_amd64.deb
-
-VERSION="1.0"
+VERSION="0.2.5"
 PKGNAME="mcpanel"
 ARCH="amd64"
 BUILD_DIR="build_deb"
 OUT_DIR="dist"
 
-# Nettoyage propre avant de commencer
+# Nettoyage propre
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/opt/$PKGNAME"
 mkdir -p "$BUILD_DIR/usr/local/bin"
 mkdir -p "$BUILD_DIR/usr/share/applications"
+# AJOUT : Dossier pour l'icône système
+mkdir -p "$BUILD_DIR/usr/share/icons/hicolor/512x512/apps"
 mkdir -p "$BUILD_DIR/DEBIAN"
 mkdir -p "$OUT_DIR"
 
 # Copy repository files to /opt/mcpanel
-# --ignore-missing-args et || true gèrent les fichiers éphémères qui causent l'erreur 24
 rsync -a --ignore-missing-args \
     --exclude ".git" \
     --exclude "dist" \
@@ -29,6 +28,13 @@ rsync -a --ignore-missing-args \
     --exclude "__pycache__" \
     --exclude "node_modules" \
     ./ "$BUILD_DIR/opt/$PKGNAME/" || true
+
+# Gestion de l'icône pour le menu K (Kubuntu)
+# On la copie dans le standard Linux pour qu'elle soit trouvée par Icon=mcpanel
+ICON_SRC="app/static/img/default_icon.png"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$BUILD_DIR/usr/share/icons/hicolor/512x512/apps/mcpanel.png"
+fi
 
 # Install wrapper
 cat > "$BUILD_DIR/usr/local/bin/mcpanel" <<'EOF'
@@ -51,12 +57,16 @@ python3 main.py "$@"
 EOF
 chmod +x "$BUILD_DIR/usr/local/bin/mcpanel"
 
-# desktop file
+# Desktop file
+# On s'assure que le .desktop utilise l'icône "mcpanel" sans chemin absolu
 cp packaging/deb/mcpanel.desktop "$BUILD_DIR/usr/share/applications/"
+sed -i 's|^Icon=.*|Icon=mcpanel|' "$BUILD_DIR/usr/share/applications/mcpanel.desktop"
 
 # systemd service
 mkdir -p "$BUILD_DIR/lib/systemd/system"
-cp packaging/deb/mcpanel.service "$BUILD_DIR/lib/systemd/system/"
+if [ -f packaging/deb/mcpanel.service ]; then
+    cp packaging/deb/mcpanel.service "$BUILD_DIR/lib/systemd/system/"
+fi
 
 # DEBIAN control
 cat > "$BUILD_DIR/DEBIAN/control" <<EOF
@@ -71,11 +81,14 @@ Description: MCPanel - Minecraft server manager
  A simple Minecraft server manager web interface.
 EOF
 
-# Post-install script (enable service)
-cp packaging/deb/DEBIAN/postinst "$BUILD_DIR/DEBIAN/"
-cp packaging/deb/DEBIAN/prerm "$BUILD_DIR/DEBIAN/"
-cp packaging/deb/DEBIAN/postrm "$BUILD_DIR/DEBIAN/"
-chmod 755 "$BUILD_DIR/DEBIAN/postinst" "$BUILD_DIR/DEBIAN/prerm" "$BUILD_DIR/DEBIAN/postrm"
+# Scripts de maintenance (postinst, etc.)
+# Utilisation de find pour copier seulement s'ils existent
+for f in postinst prerm postrm; do
+    if [ -f "packaging/deb/DEBIAN/$f" ]; then
+        cp "packaging/deb/DEBIAN/$f" "$BUILD_DIR/DEBIAN/"
+        chmod 755 "$BUILD_DIR/DEBIAN/$f"
+    fi
+done
 
 # Build deb
 fakeroot dpkg-deb --build "$BUILD_DIR" "$OUT_DIR/${PKGNAME}_${VERSION}_${ARCH}.deb"

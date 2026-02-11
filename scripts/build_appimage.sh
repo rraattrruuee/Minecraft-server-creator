@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PKGNAME=mcpanel
-VERSION=1.0
+VERSION=0.2.5
 OUTDIR=dist
 BUILD=build_appimage
 APPDIR=${BUILD}/${PKGNAME}.AppDir
@@ -17,7 +17,7 @@ mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 mkdir -p "$OUTDIR"
 
-# --- CORRECTION RSYNC ---
+# --- RSYNC ---
 rsync -a --ignore-missing-args \
     --exclude ".git" \
     --exclude "dist" \
@@ -28,7 +28,7 @@ rsync -a --ignore-missing-args \
     --exclude "*.spec" \
     ./ "$APPDIR/opt/$PKGNAME/" || true
 
-# Création du wrapper
+# Wrapper
 cat > "$APPDIR/usr/bin/mcpanel" <<'EOF'
 #!/usr/bin/env bash
 HERE=$(dirname "$(readlink -f "$0")")
@@ -36,28 +36,27 @@ exec python3 "$HERE/../opt/mcpanel/main.py" "$@"
 EOF
 chmod +x "$APPDIR/usr/bin/mcpanel"
 
-# --- GESTION DU FICHIER DESKTOP ---
-# Correction de la catégorie pour éviter les avertissements (un seul "main category")
-if [ -f packaging/deb/mcpanel.desktop ]; then
-    cp packaging/deb/mcpanel.desktop "$APPDIR/usr/share/applications/"
-    cp packaging/deb/mcpanel.desktop "$APPDIR/mcpanel.desktop"
-else
-    cat > "$APPDIR/mcpanel.desktop" <<EOF
+# --- FIX DESKTOP FILE ---
+# On crée un fichier .desktop propre à la racine pour AppImage
+cat > "$APPDIR/mcpanel.desktop" <<EOF
 [Desktop Entry]
 Name=MCPanel
 Exec=mcpanel
 Icon=mcpanel
 Type=Application
 Categories=Utility;
+Terminal=false
 EOF
-    cp "$APPDIR/mcpanel.desktop" "$APPDIR/usr/share/applications/"
-fi
+cp "$APPDIR/mcpanel.desktop" "$APPDIR/usr/share/applications/"
 
-# --- GESTION DE L'ICÔNE ---
-if [ -f app/static/img/default_icon.png ]; then
-    cp app/static/img/default_icon.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/mcpanel.png"
-    cp app/static/img/default_icon.png "$APPDIR/mcpanel.png"
+# --- FIX ICON ---
+# On s'assure que l'icône s'appelle "mcpanel.png" (sans chemin complexe)
+ICON_SRC="app/static/img/default_icon.png"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$APPDIR/mcpanel.png"
+    cp "$ICON_SRC" "$APPDIR/usr/share/icons/hicolor/512x512/apps/mcpanel.png"
 else
+    # Fallback au cas où l'icône n'existe pas pour ne pas crash le build
     touch "$APPDIR/mcpanel.png"
 fi
 
@@ -69,7 +68,7 @@ exec "$HERE/usr/bin/mcpanel" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-# Téléchargement de appimagetool
+# Download appimagetool
 APPIMAGETOOL=$BUILD/appimagetool-x86_64.AppImage
 if [ ! -f "$APPIMAGETOOL" ]; then
     echo "Downloading appimagetool..."
@@ -77,10 +76,9 @@ if [ ! -f "$APPIMAGETOOL" ]; then
     chmod +x "$APPIMAGETOOL"
 fi
 
-# Build de l'AppImage
+# Build
 OUTFILE="$OUTDIR/${PKGNAME}-${VERSION}-x86_64.AppImage"
-echo "Building AppImage for $ARCH..."
-# On force ARCH ici aussi au cas où
+echo "Building AppImage..."
 ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run "$APPDIR" "$OUTFILE"
 
 echo "Built $OUTFILE"

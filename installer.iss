@@ -1,6 +1,6 @@
 [Setup]
 AppName=MCPanel
-AppVersion=1.0
+AppVersion=0.2.5
 DefaultDirName={autopf}\MCPanel
 DefaultGroupName=MCPanel
 UninstallDisplayIcon={app}\mcpanel-windows-latest.exe

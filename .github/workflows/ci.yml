@@ -112,9 +112,10 @@ jobs:
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: artifacts
 
       - name: List final files
         run: |
-          ls -R artifacts
+          ls -R artifacts || echo "Aucun artifact trouvé."
