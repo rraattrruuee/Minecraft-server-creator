@@ -2,6 +2,41 @@
 // Description: helpers réutilisables et utils DOM.
 // Contient des versions canoniques de debounce, throttle, escapeHtml, etc.
 
+function getServerAddress(serverName) {
+  const config = JSON.parse(
+    localStorage.getItem("serverAddressConfig") || "{}",
+  );
+  if (config.useSubdomain && config.domain) {
+    return `${serverName}.${config.domain}`;
+  } else if (config.customIP) {
+    return config.customIP;
+  }
+  return "localhost";
+}
+
+function getServerPort(serverName) {
+  // Par défaut 25565
+  return "25565";
+}
+
+function getFullServerAddress(serverName) {
+  const address = getServerAddress(serverName);
+  const port = getServerPort(serverName);
+  return port === "25565" ? address : `${address}:${port}`;
+}
+
+function updateServerAddressDisplay(serverName, port) {
+  const addressDisplay = document.getElementById("server-address-display");
+  const addressText = document.getElementById("server-address-text");
+  if (addressDisplay && addressText) {
+    const address = getServerAddress(serverName);
+    const fullAddress =
+      port && port !== "25565" ? `${address}:${port}` : address;
+    addressText.textContent = fullAddress;
+    addressDisplay.style.display = "flex";
+  }
+}
+
 // Debounce
 function debounce(func, wait, immediate = false) {
   let timeout;
@@ -182,33 +217,6 @@ function validateInput(str, type = "text") {
 }
 
 // Initialization helper
-function initUtils() {
-  // expose canonical implementations for compatibility
-  globalThis._debounce = debounce;
-  globalThis._throttle = throttle;
-  globalThis._sleep = sleep;
-  globalThis._escapeHtml = escapeHtml;
-  globalThis._escapeHtmlAttr = escapeHtmlAttr;
-  globalThis._copyToClipboard = copyToClipboard;
-  globalThis._showToast = showToast;
-  globalThis._showToastQueued = showToastQueued;
-  globalThis._startInterval = startInterval;
-  globalThis._stopInterval = stopInterval;
-  globalThis._startAnimation = startAnimation;
-  globalThis._stopAnimation = stopAnimation;
-  globalThis._sanitizeInput = sanitizeInput;
-  globalThis._validateInput = validateInput;
-
-  // also provide non-underscore aliases for backward compatibility
-  globalThis.debounce = globalThis._debounce;
-  globalThis.throttle = globalThis._throttle;
-  globalThis.sleep = globalThis._sleep;
-  globalThis.escapeHtml = globalThis._escapeHtml;
-  globalThis.escapeHtmlAttr = globalThis._escapeHtmlAttr;
-  globalThis.copyToClipboard = globalThis._copyToClipboard;
-  globalThis.showToast = globalThis._showToast;
-  globalThis.showToastQueued = globalThis._showToastQueued;
-}
 
 // Run init immediately to restore compatibility if loader runs this file directly
 try {
@@ -239,6 +247,16 @@ async function detectPublicIP() {
   }
 }
 
+function refreshAll() {
+  loadServerList();
+
+  loadSystemMetrics();
+
+  loadNotifications();
+
+  showToast("success", "Donnes actualises");
+}
+
 function saveAddressConfig() {
   const config = {
     useSubdomain: document.getElementById("use-subdomain")?.checked || false,
@@ -251,4 +269,46 @@ function saveAddressConfig() {
   localStorage.setItem("serverAddressConfig", JSON.stringify(config));
 
   showToast("success", "Configuration d'adresse sauvegarde");
+}
+// Global UI helper
+function updateElement(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function initUtils() {
+  globalThis._debounce = debounce;
+  globalThis._throttle = throttle;
+  globalThis._sleep = sleep;
+  globalThis._escapeHtml = escapeHtml;
+  globalThis._escapeHtmlAttr = escapeHtmlAttr;
+  globalThis._copyToClipboard = copyToClipboard;
+  globalThis._showToast = showToast;
+  globalThis._showToastQueued = showToastQueued;
+  globalThis._startInterval = startInterval;
+  globalThis._stopInterval = stopInterval;
+  globalThis._startAnimation = startAnimation;
+  globalThis._stopAnimation = stopAnimation;
+  globalThis._sanitizeInput = sanitizeInput;
+  globalThis._validateInput = validateInput;
+  globalThis.updateElement = updateElement;
+
+  globalThis.getServerAddress = getServerAddress;
+  globalThis.getServerPort = getServerPort;
+  globalThis.getFullServerAddress = getFullServerAddress;
+  globalThis.updateServerAddressDisplay = updateServerAddressDisplay;
+
+  globalThis.debounce = debounce;
+  globalThis.throttle = throttle;
+  globalThis.sleep = sleep;
+  globalThis.escapeHtml = escapeHtml;
+  globalThis.escapeHtmlAttr = escapeHtmlAttr;
+  globalThis.copyToClipboard = copyToClipboard;
+  globalThis.showToast = showToast;
+}
+
+try {
+  initUtils();
+} catch (e) {
+  console.warn("initUtils failed", e);
 }

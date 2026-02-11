@@ -3146,6 +3146,33 @@ label {
   z-index: 101;
 }
 
+.modal-content.modal-large {
+  max-width: 900px;
+  width: 90%;
+}
+
+/* Manual tunnel config centering */
+#manual-tunnel-config {
+  display: none;
+  margin: 12px auto;
+  max-width: 600px;
+  width: 100%;
+  text-align: center;
+}
+#manual-tunnel-config .form-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+#manual-tunnel-config input[type="text"] {
+  max-width: 360px;
+  width: 100%;
+}
+#manual-tunnel-config .btn-primary {
+  white-space: nowrap;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -8936,9 +8963,54 @@ pre {
 }
 
 .tunnel-info {
-  color: var(--success);
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--success-bg);
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(40, 167, 69, 0.2);
   margin-bottom: 20px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  width: fit-content;
+}
+
+.tunnel-label {
+  font-weight: 600;
+  color: var(--success);
+  white-space: nowrap;
+}
+
+.tunnel-address {
+  font-family: "Courier New", Courier, monospace;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: #1a1818;
+  font-size: 0.85rem;
+  border: 3px dashed rgba(0, 0, 0, 0.1);
+  background-color: rgb(140 190 249 / 10%);
+}
+
+.btn-copy-small {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+}
+
+.btn-copy-small:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--success);
+  transform: scale(1.1);
+}
+
+.btn-copy-small:active {
+  transform: scale(0.9);
 }
 
 .tunnel-providers-grid {
@@ -9029,14 +9101,11 @@ pre {
 }
 
 .tunnel-icon {
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
+  color: var(--success);
+  font-size: 1.1rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 24px;
-  font-size: 40px;
 }
 
 .tunnel-icon.spinning i {
@@ -9186,14 +9255,6 @@ pre {
   100% {
     transform: translateX(400%);
   }
-}
-
-/* Tunnel Actions */
-.tunnel-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 20px;
 }
 
 /* Tunnel Instructions (Manual mode) */

@@ -3,6 +3,7 @@ import os
 import secrets
 import subprocess
 import sys
+import threading
 import time
 import requests
 from datetime import datetime, timedelta
@@ -197,6 +198,28 @@ auth_mgr = AuthManager()
 metrics_collector = MetricsCollector()
 metrics_collector.start()
 
+def collect_server_metrics_task():
+    """Tâche de fond pour collecter les métriques des serveurs actifs"""
+    print("[METRICS] Tâche de collecte des métriques serveurs démarrée")
+    while True:
+        try:
+            # On itère sur les serveurs actifs
+            for name in list(srv_mgr.procs.keys()):
+                try:
+                    status = srv_mgr.get_status(name)
+                    if status.get("status") == "online":
+                        data = {
+                            "cpu": status.get("cpu", 0),
+                            "ram": status.get("ram_mb", 0),
+                            "players_online": status.get("players_online", 0)
+                        }
+                        metrics_collector.update_server_metrics(name, data)
+                except Exception as e:
+                    pass
+        except Exception as e:
+            print(f"[METRICS] Erreur boucle collecte: {e}")
+        time.sleep(15)  # Collecte toutes les 15 secondes
+
 # Initialiser le gestionnaire de tunnel (remplace Playit.gg)
 try:
     tunnel_mgr = get_tunnel_manager(os.path.join(os.path.dirname(__file__), "servers"))
@@ -255,6 +278,9 @@ server_monitor.start()
 backup_scheduler = BackupScheduler(srv_mgr)
 file_mgr = FileManager(srv_mgr.base_dir)
 config_editor = ConfigEditor(srv_mgr.base_dir)
+
+# Démarrer la collecte des métriques serveurs après initialisation des managers
+threading.Thread(target=collect_server_metrics_task, daemon=True).start()
 
 
 # ===================== ROUTES PING/STATUS =====================

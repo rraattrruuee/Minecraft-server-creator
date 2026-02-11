@@ -1,11 +1,21 @@
+async function changeLanguage(lang) {
+  try {
+    const res = await apiFetch("/api/i18n/set_language", {
+      method: "POST",
+      body: JSON.stringify({ language: lang }),
+    });
+    const result = await res.json();
+    if (result.status === "success") {
+      localStorage.setItem("mcp_lang", lang);
+      location.reload();
+    }
+  } catch (err) {
+    console.warn("changeLanguage failed", err);
+  }
+}
 // mcp_i18n.js
 // Gestion de l'internationalisation et application des traductions
 
-async function changeLanguage(lang) {
-  if (typeof globalThis._mcp_changeLanguage === "function")
-    return globalThis._mcp_changeLanguage(lang);
-  console.warn("changeLanguage moved to mcp_i18n");
-}
 
 function applyTranslations() {
   // Traduire les éléments avec data-i18n (textContent)

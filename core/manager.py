@@ -1740,18 +1740,36 @@ class ServerManager:
                 r.raise_for_status()
                 version_data = r.json()
             else:
-                # Get latest version compatible? (Simpler for now: require version_id or pick first)
-                # For this MVP, let's just get project versions
+                # Picker auto: trouver une version compatible
+                cfg = self.get_server_config(server_name)
+                mc_v = cfg.get("version")
+                loader = cfg.get("server_type") # paper n'a pas de mods jar comme forge/fabric mais bon
+                
                 versions_url = f"https://api.modrinth.com/v2/project/{project_id}/version"
                 r = requests.get(versions_url, headers=headers)
                 r.raise_for_status()
                 all_versions = r.json()
-                if not all_versions:
-                    return False, "No versions found"
-                version_data = all_versions[0] # Pick latest
+                
+                version_data = None
+                if mc_v:
+                    # Chercher correspondance exacte
+                    for v in all_versions:
+                        if mc_v in v.get("game_versions", []) and (not loader or loader in v.get("loaders", [])):
+                            version_data = v
+                            break
+                
+                if not version_data and all_versions:
+                    version_data = all_versions[0] # Fallback latest
+                
+                if not version_data:
+                    return False, "No compatible versions found"
             
             # 2. Get download URL
-            file_info = version_data["files"][0]
+            files = version_data.get("files", [])
+            if not files:
+                 return False, "No files found for this version"
+            
+            file_info = files[0]
             download_url = file_info["url"]
             filename = secure_filename(file_info["filename"])
             

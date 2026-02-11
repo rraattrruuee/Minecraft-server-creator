@@ -10098,29 +10098,132 @@ async function refreshServerStats() {
 }
 
 /**
- * Charge les top joueurs du serveur
+ * Charge les top joueurs du serveur avec un algorithme de scoring multi-paramètres
+ * Options possibles (passés en argument ou via globalThis.topPlayersConfig):
+ *  - limit: nombre de joueurs à afficher (default 6)
+ *  - weights: objet { play_time:0.4, kills:0.2, kd:0.1, recent:0.15, wins:0.1, votes:0.05 }
+ *  - showMetrics: boolean pour afficher les métriques (default true)
  */
-async function loadTopPlayers() {
+async function loadTopPlayers(options = {}) {
   const container = document.getElementById("top-players-grid");
   if (!container) return;
   container.innerHTML = "";
   if (!currentServer) return;
 
+  // Defaults
+  const defaults = {
+    limit: 6,
+    showMetrics: true,
+    weights: {
+      play_time: 0.35,
+      kills: 0.15,
+      kd: 0.15,
+      recent: 0.15,
+      wins: 0.1,
+      votes: 0.05,
+      blocks: 0.03,
+      joins: 0.02,
+    },
+  };
+
+  // Merge with global config if present
+  const cfg = Object.assign(
+    {},
+    defaults,
+    globalThis.topPlayersConfig || {},
+    options,
+  );
+  // Normalise weights to sum 1
+  const ws = Object.assign(
+    {},
+    defaults.weights,
+    (globalThis.topPlayersConfig || {}).weights || {},
+    options.weights || {},
+  );
+  const totalW =
+    Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0) || 1;
+  Object.keys(ws).forEach((k) => (ws[k] = (Number(ws[k]) || 0) / totalW));
+
+  function relTimeScore(ts) {
+    if (!ts) return 0;
+    const t = typeof ts === "number" ? ts : Date.parse(ts);
+    if (Number.isNaN(t)) return 0;
+    const secsAgo = (Date.now() - t) / 1000;
+    // cap at 30 days
+    const cap = 30 * 24 * 3600;
+    return Math.max(0, 1 - Math.min(secsAgo, cap) / cap);
+  }
+
   try {
     const resp = await apiFetch(`/api/server/${currentServer}/players`);
     const data = await resp.json();
-    if (!Array.isArray(data) || data.length === 0) {
+    const players = Array.isArray(data) ? data : data.players || [];
+    if (!players || players.length === 0) {
       container.innerHTML = '<div class="empty-message">Aucun joueur</div>';
       return;
     }
 
-    // Sort by play_time or default to 0
-    const sorted = data
-      .slice()
-      .sort((a, b) => (b.stats?.play_time || 0) - (a.stats?.play_time || 0));
-    const top = sorted.slice(0, 6);
+    // Compute raw metric arrays for normalization
+    const metrics = players.map((p) => {
+      const s = p.stats || {};
+      const play = Number(s.play_time || 0);
+      const kills = Number(s.kills || 0);
+      const deaths = Number(s.deaths || 0);
+      const kd = kills / Math.max(1, deaths);
+      const wins = Number(s.wins || 0);
+      const votes = Number(s.votes || 0);
+      const blocks =
+        Number(s.blocks_placed || 0) + Number(s.blocks_broken || 0 || 0);
+      const joins = Number(s.joins || 0);
+      const recent = relTimeScore(
+        p.last_seen || p.lastSeen || s.last_seen || s.lastSeen,
+      );
+      return { play, kills, deaths, kd, wins, votes, blocks, joins, recent };
+    });
+
+    function normalize(arr, invert = false) {
+      const vals = arr.map((v) => v || 0);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      if (max === min) return vals.map(() => (invert ? 1 : 0));
+      return vals.map((v) => {
+        const n = (v - min) / (max - min);
+        return invert ? 1 - n : n;
+      });
+    }
+
+    const plays = normalize(metrics.map((m) => m.play));
+    const killsArr = normalize(metrics.map((m) => m.kills));
+    const deathsArr = normalize(
+      metrics.map((m) => m.deaths),
+      true,
+    ); // fewer deaths => better
+    const kdArr = normalize(metrics.map((m) => m.kd));
+    const winsArr = normalize(metrics.map((m) => m.wins));
+    const votesArr = normalize(metrics.map((m) => m.votes));
+    const blocksArr = normalize(metrics.map((m) => m.blocks));
+    const joinsArr = normalize(metrics.map((m) => m.joins));
+    const recentArr = normalize(metrics.map((m) => m.recent));
+
+    // Calculate score per player
+    const scored = players.map((p, idx) => {
+      const score =
+        ws.play_time * plays[idx] +
+        ws.kills * killsArr[idx] +
+        ws.kd * kdArr[idx] +
+        ws.wins * winsArr[idx] +
+        ws.votes * votesArr[idx] +
+        ws.blocks * blocksArr[idx] +
+        ws.joins * joinsArr[idx] +
+        ws.recent * recentArr[idx];
+      return { player: p, score, metrics: metrics[idx] };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, cfg.limit);
+
     container.innerHTML = top
-      .map((p, index) => {
+      .map(({ player: p, score, metrics }, index) => {
         const rankClass =
           index === 0
             ? "gold"
@@ -10129,15 +10232,67 @@ async function loadTopPlayers() {
               : index === 2
                 ? "bronze"
                 : "";
-        const playtime = p.stats?.play_time || 0;
-        const playLabel = playtime ? formatPlaytime(playtime) : "N/A";
-        return `<div class="top-player ${rankClass}"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-time">${playLabel}</div></div>`;
+        const playLabel = metrics.play ? formatPlaytime(metrics.play) : "N/A";
+        const kills = metrics.kills || 0;
+        const deaths = metrics.deaths || 0;
+        const kd = (metrics.kd || 0).toFixed(2);
+        const lastSeen =
+          p.last_seen || p.lastSeen || (p.stats && p.stats.last_seen) || null;
+        const lastLabel = lastSeen ? timeAgoLabel(lastSeen) : "-";
+        const nameEsc = escapeHtml(p.name || p.player || "?");
+        const avatar = `https://mc-heads.net/avatar/${encodeURIComponent(p.name)}/48`;
+
+        return `
+          <div class="top-player ${rankClass}" onclick="openPlayerModal('${nameEsc}', '${p.uuid || ""}')" style="cursor:pointer">
+            <img src="${avatar}" alt="${nameEsc}" class="player-avatar" onerror="this.src='https://mc-heads.net/avatar/MHF_Steve/48'">
+            <div class="player-meta">
+              <div class="player-name">${nameEsc}</div>
+              <div class="player-sub">${lastLabel} • Score: ${score.toFixed(2)}</div>
+            </div>
+            <div class="player-stats">
+              <div class="stat"><i class="fas fa-clock"></i> ${playLabel}</div>
+              <div class="stat"><i class="fas fa-skull-crossbones"></i> ${kills}/${deaths} (KD ${kd})</div>
+            </div>
+          </div>`;
       })
       .join("");
+
+    if (cfg.showMetrics) {
+      const legend = document.createElement("div");
+      legend.className = "top-players-legend";
+      legend.innerHTML = `<small>Scores calculés avec pondérations: ${Object.entries(
+        ws,
+      )
+        .map(([k, v]) => `${escapeHtml(k)}:${(v * 100).toFixed(0)}%`)
+        .join(" ")}</small>`;
+      container.appendChild(legend);
+    }
   } catch (e) {
     console.error("Erreur chargement top players:", e);
     container.innerHTML = '<div class="empty-message">Erreur chargement</div>';
   }
+}
+
+function formatPlaytime(seconds) {
+  if (!seconds || seconds === 0) return "Jamais connecté";
+
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `${days}j ${hours % 24}h`;
+  }
+  return `${hours}h ${minutes}m`;
+}
+
+function timeAgoLabel(ts) {
+  const t = typeof ts === "number" ? ts : Date.parse(ts);
+  if (Number.isNaN(t)) return "-";
+  const diff = Math.floor((Date.now() - t) / 1000);
+  if (diff < 60) return "à l'instant";
+  if (diff < 3600) return `Il y a ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `Il y a ${Math.floor(diff / 3600)}h`;
+  return `Il y a ${Math.floor(diff / 86400)}j`;
 }
 
 /**

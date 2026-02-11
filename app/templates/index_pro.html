@@ -458,7 +458,7 @@
           <!-- Tunnel Status Bar -->
           <div
             id="tunnel-status-bar"
-            class="tunnel-status-bar"
+            class="tunnel-address-box"
             style="display: none"
           >
             <div class="tunnel-info">
@@ -475,12 +475,7 @@
               >
                 <i class="fas fa-copy"></i>
               </button>
-            </div>
-            <div class="tunnel-actions">
-              <span class="tunnel-provider" id="tunnel-provider-display"
-                >-</span
-              >
-              <button class="btn-tunnel-stop" onclick="stopTunnel()">
+              <button class="tunnel-provider" onclick="stopTunnel()">
                 <i class="fas fa-times"></i>
                 <span data-i18n="tunnel.stop">Arrêter</span>
               </button>
@@ -799,10 +794,30 @@
             </div>
 
             <div id="view-mods" class="view" style="display: none">
-              <div class="card-header">
+              <div
+                class="card-header"
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                "
+              >
                 <h3>
                   <i class="fas fa-cubes"></i> Gestionnaire de Mods (Modrinth)
                 </h3>
+                <button
+                  class="btn-primary-sm"
+                  onclick="document.getElementById('mod-upload-input').click()"
+                >
+                  <i class="fas fa-file-import"></i> Importer un mod
+                </button>
+                <input
+                  type="file"
+                  id="mod-upload-input"
+                  accept=".jar"
+                  style="display: none"
+                  onchange="handleModUpload(this.files[0])"
+                />
               </div>
 
               <div class="search-box">
@@ -817,16 +832,40 @@
                 </button>
               </div>
 
-              <div
-                id="mods-results-container"
-                class="settings-grid"
-                style="
-                  margin-top: 20px;
-                  display: grid;
-                  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                  gap: 15px;
-                "
-              ></div>
+              <div class="mods-sections" style="margin-top: 20px">
+                <div class="mods-section">
+                  <h4>Mods Installés</h4>
+                  <div
+                    id="installed-mods-container"
+                    class="settings-grid"
+                    style="
+                      display: grid;
+                      grid-template-columns: repeat(
+                        auto-fill,
+                        minmax(280px, 1fr)
+                      );
+                      gap: 15px;
+                      margin-bottom: 30px;
+                    "
+                  ></div>
+                </div>
+
+                <div class="mods-section">
+                  <h4>Résultats de recherche</h4>
+                  <div
+                    id="mods-results-container"
+                    class="settings-grid"
+                    style="
+                      display: grid;
+                      grid-template-columns: repeat(
+                        auto-fill,
+                        minmax(280px, 1fr)
+                      );
+                      gap: 15px;
+                    "
+                  ></div>
+                </div>
+              </div>
             </div>
 
             <!-- Stats - Nouvelle section -->
@@ -2066,6 +2105,24 @@
                   Sauvegarder
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="mod-versions-modal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3 id="mod-versions-title">Versions du Mod</h3>
+          <button class="close-btn" onclick="closeModVersionsModal()">
+            &times;
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="mod-versions-list" class="versions-list">
+            <div class="loading-state">
+              <i class="fas fa-spinner fa-spin"></i> Chargement des versions...
             </div>
           </div>
         </div>

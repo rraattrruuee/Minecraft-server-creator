@@ -88,13 +88,24 @@ async function apiFetch(url, options = {}, retries = 0) {
     if (!navigator.onLine) throw new Error("Pas de connexion internet");
     let csrfToken = getCsrfToken();
     const method = (options.method || "GET").toUpperCase();
+    // Ensure CSRF token exists for state-changing methods
     if (!csrfToken && ["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
       await refreshCsrfToken();
       csrfToken = getCsrfToken();
     }
+
+    // If the request method expects a body but none was provided, send an empty JSON
+    // This avoids servers returning 415 Unsupported Media Type when they expect JSON
+    if (
+      ["POST", "PUT", "DELETE", "PATCH"].includes(method) &&
+      typeof options.body === "undefined"
+    ) {
+      options.body = JSON.stringify({});
+    }
+
     const mergedHeaders = {
       Accept: "application/json",
-      ...(options.body && typeof options.body === "string"
+      ...(typeof options.body === "string"
         ? { "Content-Type": "application/json" }
         : {}),
       ...options.headers,

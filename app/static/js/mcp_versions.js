@@ -113,4 +113,8 @@ function initVersions() {
   globalThis.loadForgeBuilds = loadForgeBuilds;
   globalThis.loadFabricLoaders = loadFabricLoaders;
   globalThis._mcp_loadVersions = loadVersions;
+  globalThis.onServerTypeChangeDebounced = function () {
+    if (typeof onServerTypeChange === "function") onServerTypeChange();
+    loadVersions();
+  };
 }

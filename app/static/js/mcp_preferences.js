@@ -1,6 +1,14 @@
 // mcp_preferences.js
 // UI pour préférences utilisateur: import/export et bindings
 
+globalThis.performanceSettings = globalThis.performanceSettings || {
+  mode: "balanced",
+  refreshRate: 30000,
+  maxLogLines: 1000,
+  chartPoints: 30,
+  gpuEnabled: true,
+};
+
 async function importPreferences(file) {
   try {
     const text = await file.text();

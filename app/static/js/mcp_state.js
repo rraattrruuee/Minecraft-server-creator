@@ -168,36 +168,110 @@ async function loadServerList(forceRefresh = false) {
   console.debug("loadServerList called", { forceRefresh });
   try {
     const response = await apiFetch("/api/servers");
-    console.debug(
-      "/api/servers response",
-      response && typeof response.json === "function" ? "ok" : response,
-    );
     const servers = await response.json();
-    console.debug("/api/servers parsed", {
-      length: Array.isArray(servers) ? servers.length : null,
-      sample: servers?.slice?.(0, 5),
-    });
     const serversChanged =
       forceRefresh ||
       JSON.stringify(servers) !== JSON.stringify(window.lastServerList || []);
-    console.debug("serversChanged?", serversChanged);
     window.lastServerList = servers;
+
+    // Dashboard table
     const serversTable = document.getElementById("servers-table");
     if (serversTable && serversChanged) {
       if (servers.length === 0)
         serversTable.innerHTML =
-          '<p class="empty-message">Aucun serveur. Crez-en un !</p>';
+          '<p class="empty-message">Aucun serveur. Créez-en !</p>';
       else {
-        serversTable.innerHTML = `<table><thead><tr><th>Nom</th><th>Statut</th><th>Actions</th></tr></thead><tbody>${servers.map((s) => `<tr><td>${escapeHtml(s)}</td><td><span class="status-dot-small" id="status-${s}"></span></td><td><button class="btn-table" onclick="selectServer('${s}')"><i class="fas fa-eye"></i></button></td></tr>`).join("")}</tbody></table>`;
+        serversTable.innerHTML = `<table><thead><tr><th>Nom</th><th>Statut</th><th>Actions</th></tr></thead><tbody>${servers
+          .map(
+            (s) =>
+              `<tr><td>${escapeHtml(s)}</td><td><span class="status-dot-small" id="status-${s}"></span></td><td><button class="btn-table" onclick="selectServer('${s}')"><i class="fas fa-eye"></i></button></td></tr>`,
+          )
+          .join("")}</tbody></table>`;
       }
+    }
+
+    // Sidebar server list
+    const serverListEl = document.getElementById("server-list");
+    if (serverListEl && serversChanged) {
+      if (servers.length === 0) {
+        serverListEl.innerHTML = '<p class="empty-message">Aucun serveur.</p>';
+      } else {
+        serverListEl.innerHTML = servers
+          .map((server) => {
+            const safe = ("" + server).replace(/'/g, "\\'");
+            return `<div class="server-item" onclick="selectServer('${safe}')"><i class="fas fa-server"></i><span>${escapeHtml(server)}</span></div>`;
+          })
+          .join("");
+      }
+    }
+
+    // Servers grid
+    const serversGrid = document.getElementById("servers-grid");
+    if (serversGrid && serversChanged) {
+      if (servers.length === 0) {
+        serversGrid.innerHTML =
+          '<p class="empty-message">Aucun serveur. Créez-en un !</p>';
+      } else {
+        serversGrid.innerHTML = servers
+          .map(
+            (server) =>
+              `\n                <div class="server-card" onclick="selectServer('${server}')">\n                    <div class="server-card-header"><i class="fas fa-server"></i><h3>${escapeHtml(
+                server,
+              )}</h3></div>\n                    <div class="server-card-status" id="card-status-${server}"><span class="status-dot offline"></span><span>Hors ligne</span></div>\n                </div>\n            `,
+          )
+          .join("");
+      }
+    }
+
+    // Update counters
+    if (typeof updateElement === "function") {
+      updateElement("dash-servers-total", servers.length);
+      updateElement("dash-servers-online", 0);
     } else {
-      console.debug("serversTable not updated", {
-        serversTableExists: !!serversTable,
-        serversLength: servers?.length,
-      });
+      const totalEl = document.getElementById("dash-servers-total");
+      const onlineEl = document.getElementById("dash-servers-online");
+      if (totalEl) totalEl.textContent = servers.length;
+      if (onlineEl) onlineEl.textContent = 0;
+    }
+
+    // Refresh statuses asynchronously
+    if (servers.length > 0) {
+      updateAllServerStatuses(servers);
     }
   } catch (e) {
     console.warn("loadServerList failed", e);
+  }
+}
+
+async function updateAllServerStatuses(servers) {
+  let onlineCount = 0;
+  const tasks = servers.map(async (server) => {
+    try {
+      const res = await apiFetch(
+        `/api/server/${encodeURIComponent(server)}/status`,
+      );
+      const status = await res.json();
+      const isOnline = !!status.running;
+      if (isOnline) onlineCount++;
+      const statusDot = document.getElementById(`status-${server}`);
+      if (statusDot)
+        statusDot.className = `status-dot-small ${isOnline ? "online" : "offline"}`;
+      const cardStatus = document.getElementById(`card-status-${server}`);
+      if (cardStatus) {
+        cardStatus.innerHTML = `<span class="status-dot ${isOnline ? "online" : "offline"}"></span><span>${isOnline ? "En ligne" : "Hors ligne"}</span>`;
+      }
+    } catch (e) {
+      console.warn("updateAllServerStatuses: failed for", server, e);
+    }
+  });
+
+  await Promise.allSettled(tasks);
+
+  if (typeof updateElement === "function")
+    updateElement("dash-servers-online", onlineCount);
+  else {
+    const onlineEl = document.getElementById("dash-servers-online");
+    if (onlineEl) onlineEl.textContent = onlineCount;
   }
 }
 
@@ -299,14 +373,29 @@ async function applyServerConfigContext(
     else if (serverType === "neoforge") window.currentServerLoader = "neoforge";
     else if (serverType === "quilt") window.currentServerLoader = "quilt";
     else if (serverType === "paper") window.currentServerLoader = null;
-    if (serverType === "fabric" || serverType === "forge") {
-      try {
-        document.querySelector('.tab[data-view="mods"]').style.display = "";
-      } catch (e) {}
-      try {
-        document.querySelector('.tab[data-view="plugins"]').style.display = "";
-      } catch (e) {}
-    }
+
+    const isModded =
+      serverType === "fabric" ||
+      serverType === "forge" ||
+      serverType === "neoforge" ||
+      serverType === "quilt" ||
+      serverType === "magma";
+    const isPluginBased =
+      serverType === "paper" ||
+      serverType === "spigot" ||
+      serverType === "purpur" ||
+      serverType === "magma";
+
+    try {
+      const modsTab = document.querySelector('.tab[data-view="mods"]');
+      if (modsTab) modsTab.style.display = isModded ? "inline-block" : "none";
+    } catch (e) {}
+
+    try {
+      const pluginsTab = document.querySelector('.tab[data-view="plugins"]');
+      if (pluginsTab)
+        pluginsTab.style.display = isPluginBased ? "inline-block" : "none";
+    } catch (e) {}
   } catch (e) {
     console.warn("applyServerConfigContext failed", e);
   }
@@ -393,6 +482,29 @@ function initState() {
   globalThis.sessionStats = window.sessionStats = sessionStats;
   globalThis.userPreferences = window.userPreferences = userPreferences;
   globalThis.favoriteCommands = window.favoriteCommands = favoriteCommands;
+
+  // Charge les préférences et la liste de serveurs au démarrage
+  try {
+    loadUserPreferences();
+  } catch (e) {
+    console.warn("initState: loadUserPreferences failed", e);
+  }
+
+  try {
+    // Chargement initial de la liste des serveurs
+    loadServerList();
+  } catch (e) {
+    console.warn("initState: loadServerList failed", e);
+  }
+
+  // Rafraîchissement périodique de la liste de serveurs si activé par les préférences
+  try {
+    if (!window.__mcp_serverListInterval) {
+      window.__mcp_serverListInterval = setInterval(() => {
+        if (userPreferences.autoRefresh) loadServerList();
+      }, userPreferences.refreshInterval || 5000);
+    }
+  } catch (e) {}
 }
 
 try {
