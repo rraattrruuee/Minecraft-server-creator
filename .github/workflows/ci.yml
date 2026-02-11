@@ -10,6 +10,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.11"]
@@ -22,56 +23,67 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
-      - name: Install Python deps
+      - name: Install Python deps (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest coverage pyinstaller
 
-      - name: Run tests
+      - name: Install Python deps (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          coverage run -m pytest -q || true
+          python -m pip install --upgrade pip
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+          pip install pytest coverage pyinstaller
+
+      - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          coverage run -m pytest -q || echo "Certains tests ont échoué"
           coverage xml -i -o coverage.xml || true
 
-      - name: Build executable with PyInstaller
+      - name: Build executable with PyInstaller (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          chmod +x scripts/build_deb.sh || true
-          pyinstaller --onefile --name mcpanel-ubuntu --add-data "app/templates:app/templates" --add-data "app/static:app/static" --add-data "locales:locales" main.py
+          pyinstaller --onefile --name mcpanel-ubuntu \
+            --add-data "app/templates:app/templates" \
+            --add-data "app/static:app/static" \
+            --add-data "locales:locales" main.py
 
       - name: Build executable with PyInstaller (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          pip install pyinstaller
-          pyinstaller --onefile --name mcpanel-windows --add-data "app/templates;app/templates" --add-data "app/static;app/static" --add-data "locales;locales" main.py
+          # Sous Windows, PyInstaller utilise ";" comme séparateur pour --add-data
+          pyinstaller --onefile --name mcpanel-windows `
+            --add-data "app/templates;app/templates" `
+            --add-data "app/static;app/static" `
+            --add-data "locales;locales" main.py
 
-      # Linux packaging: .deb and AppImage
       - name: Install packaging tools (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y rsync wget fakeroot dpkg-dev
 
-      - name: Build .deb package
+      - name: Build Linux Packages (.deb & AppImage)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          chmod +x scripts/build_deb.sh
+          chmod +x scripts/build_deb.sh scripts/build_appimage.sh
           ./scripts/build_deb.sh
-
-      - name: Build AppImage
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          chmod +x scripts/build_appimage.sh
           ./scripts/build_appimage.sh
 
-      # Windows packaging: Inno Setup installer
       - name: Build Windows installer (Inno Setup)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          # On renomme l'exe pour correspondre au fichier .iss qui cherche "mcpanel-windows-latest.exe"
+          Move-Item "dist\mcpanel-windows.exe" "dist\mcpanel-windows-latest.exe" -Force
           .\scripts\build_installer.ps1
 
       - name: Upload package artifacts
@@ -82,8 +94,8 @@ jobs:
             dist/*.deb
             dist/*.AppImage
             dist/*.exe
+          if-no-files-found: warn
 
-  # Optional: create a summary job to collect artifacts or create a release
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -91,16 +103,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Download artifacts
+
+      - name: Download Ubuntu artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: packages-ubuntu-latest
           path: artifacts/ubuntu
-      - name: Download windows artifacts
+
+      - name: Download Windows artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: packages-windows-latest
           path: artifacts/windows
-      - name: List files
+
+      - name: List final files
         run: |
-          ls -la artifacts || true
+          echo "Contenu des artifacts récupérés :"
+          ls -R artifacts || echo "Aucun artifact trouvé."
