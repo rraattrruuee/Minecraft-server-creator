@@ -21,7 +21,6 @@ rsync -a --exclude ".git" --exclude "dist" --exclude "__pycache__" ./ "$APPDIR/o
 cat > "$APPDIR/usr/bin/mcpanel" <<'EOF'
 #!/usr/bin/env bash
 HERE=$(dirname "$(readlink -f "$0")")
-# run the packaged python venv if present, otherwise try system python
 if [ -x "$HERE/../opt/mcpanel/venv/bin/python" ]; then
   exec "$HERE/../opt/mcpanel/venv/bin/python" "$HERE/../opt/mcpanel/main.py" "$@"
 else
@@ -36,7 +35,7 @@ if [ -f app/static/img/default_icon.png ]; then
   cp app/static/img/default_icon.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/mcpanel.png"
 fi
 
-# Make sure AppRun exists for AppImage compatibility
+# AppRun launcher
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -52,8 +51,9 @@ if [ ! -f "$APPIMAGETOOL" ]; then
   chmod +x "$APPIMAGETOOL"
 fi
 
-# Build AppImage
+# Build AppImage using extract-and-run to bypass FUSE requirements in CI
 OUTFILE="$OUTDIR/${PKGNAME}-${VERSION}-x86_64.AppImage"
-"$APPIMAGETOOL" "$APPDIR" "$OUTFILE"
+echo "Building AppImage..."
+"$APPIMAGETOOL" --appimage-extract-and-run "$APPDIR" "$OUTFILE"
 
 echo "Built $OUTFILE"

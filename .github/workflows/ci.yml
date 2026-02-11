@@ -40,11 +40,19 @@ jobs:
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
           pip install pytest coverage pyinstaller
 
+      - name: Install packaging tools (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          # libfuse2 est indispensable pour faire tourner appimagetool sur Ubuntu 24.04+
+          sudo apt-get install -y rsync wget fakeroot dpkg-dev libfuse2
+
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
+        shell: bash
         run: |
-          # Correction des imports : on force la présence des __init__.py
+          # Utiliser bash sur Windows permet d'utiliser mkdir -p sans erreur
           mkdir -p scripts tests
           touch scripts/__init__.py
           touch tests/__init__.py
@@ -58,7 +66,6 @@ jobs:
             --add-data "app/templates:app/templates" \
             --add-data "app/static:app/static" \
             --add-data "locales:locales" main.py
-          # On nettoie le dossier build pour que rsync ne tente pas de le copier après
           rm -rf build/
 
       - name: Build executable with PyInstaller (Windows)
@@ -71,16 +78,9 @@ jobs:
             --add-data "locales;locales" main.py
           if (Test-Path build) { Remove-Item -Recurse -Force build }
 
-      - name: Install packaging tools (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rsync wget fakeroot dpkg-dev
-
       - name: Build Linux Packages (.deb & AppImage)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          # Nettoyage final des dossiers de travail avant packaging
           rm -rf build_deb build_appimage
           chmod +x scripts/build_deb.sh scripts/build_appimage.sh
           ./scripts/build_deb.sh
@@ -90,7 +90,6 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          # Renommage pour correspondre au fichier .iss
           if (Test-Path "dist\mcpanel-windows.exe") {
             Move-Item "dist\mcpanel-windows.exe" "dist\mcpanel-windows-latest.exe" -Force
           }
@@ -111,21 +110,12 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Download Ubuntu artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: packages-ubuntu-latest
-          path: artifacts/ubuntu
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: packages-windows-latest
-          path: artifacts/windows
+          path: artifacts
 
       - name: List final files
         run: |
-          echo "Contenu des artifacts récupérés :"
           ls -R artifacts || echo "Aucun artifact trouvé."
