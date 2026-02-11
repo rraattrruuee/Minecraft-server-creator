@@ -10,6 +10,7 @@ ARCH="amd64"
 BUILD_DIR="build_deb"
 OUT_DIR="dist"
 
+# Nettoyage propre avant de commencer
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/opt/$PKGNAME"
 mkdir -p "$BUILD_DIR/usr/local/bin"
@@ -17,8 +18,17 @@ mkdir -p "$BUILD_DIR/usr/share/applications"
 mkdir -p "$BUILD_DIR/DEBIAN"
 mkdir -p "$OUT_DIR"
 
-# Copy repository files to /opt/mcpanel (exclude heavy items)
-rsync -a --exclude ".git" --exclude "dist" --exclude "__pycache__" --exclude "node_modules" ./ "$BUILD_DIR/opt/$PKGNAME/"
+# Copy repository files to /opt/mcpanel
+# --ignore-missing-args et || true gèrent les fichiers éphémères qui causent l'erreur 24
+rsync -a --ignore-missing-args \
+    --exclude ".git" \
+    --exclude "dist" \
+    --exclude "build" \
+    --exclude "build_deb" \
+    --exclude "build_appimage" \
+    --exclude "__pycache__" \
+    --exclude "node_modules" \
+    ./ "$BUILD_DIR/opt/$PKGNAME/" || true
 
 # Install wrapper
 cat > "$BUILD_DIR/usr/local/bin/mcpanel" <<'EOF'

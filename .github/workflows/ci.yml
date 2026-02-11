@@ -44,6 +44,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
+          # Correction des imports : on force la présence des __init__.py
+          mkdir -p scripts tests
+          touch scripts/__init__.py
+          touch tests/__init__.py
           coverage run -m pytest -q || echo "Certains tests ont échoué"
           coverage xml -i -o coverage.xml || true
 
@@ -54,16 +58,18 @@ jobs:
             --add-data "app/templates:app/templates" \
             --add-data "app/static:app/static" \
             --add-data "locales:locales" main.py
+          # On nettoie le dossier build pour que rsync ne tente pas de le copier après
+          rm -rf build/
 
       - name: Build executable with PyInstaller (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          # Sous Windows, PyInstaller utilise ";" comme séparateur pour --add-data
           pyinstaller --onefile --name mcpanel-windows `
             --add-data "app/templates;app/templates" `
             --add-data "app/static;app/static" `
             --add-data "locales;locales" main.py
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
 
       - name: Install packaging tools (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -74,6 +80,8 @@ jobs:
       - name: Build Linux Packages (.deb & AppImage)
         if: matrix.os == 'ubuntu-latest'
         run: |
+          # Nettoyage final des dossiers de travail avant packaging
+          rm -rf build_deb build_appimage
           chmod +x scripts/build_deb.sh scripts/build_appimage.sh
           ./scripts/build_deb.sh
           ./scripts/build_appimage.sh
@@ -82,8 +90,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          # On renomme l'exe pour correspondre au fichier .iss qui cherche "mcpanel-windows-latest.exe"
-          Move-Item "dist\mcpanel-windows.exe" "dist\mcpanel-windows-latest.exe" -Force
+          # Renommage pour correspondre au fichier .iss
+          if (Test-Path "dist\mcpanel-windows.exe") {
+            Move-Item "dist\mcpanel-windows.exe" "dist\mcpanel-windows-latest.exe" -Force
+          }
           .\scripts\build_installer.ps1
 
       - name: Upload package artifacts
@@ -101,9 +111,6 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download Ubuntu artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
