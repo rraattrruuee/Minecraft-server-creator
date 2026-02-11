@@ -7,6 +7,9 @@ OUTDIR=dist
 BUILD=build_appimage
 APPDIR=${BUILD}/${PKGNAME}.AppDir
 
+# On définit explicitement l'architecture pour appimagetool
+export ARCH=x86_64
+
 rm -rf "$BUILD"
 mkdir -p "$APPDIR/usr/bin"
 mkdir -p "$APPDIR/opt/$PKGNAME"
@@ -14,8 +17,7 @@ mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 mkdir -p "$OUTDIR"
 
-# --- CORRECTION RSYNC (Race Condition Python 3.13) ---
-# Utilisation de --ignore-missing-args pour éviter l'erreur sur les fichiers éphémères
+# --- CORRECTION RSYNC ---
 rsync -a --ignore-missing-args \
     --exclude ".git" \
     --exclude "dist" \
@@ -34,7 +36,8 @@ exec python3 "$HERE/../opt/mcpanel/main.py" "$@"
 EOF
 chmod +x "$APPDIR/usr/bin/mcpanel"
 
-# --- GESTION DES FICHIERS DESKTOP ET ICONE (REQUIS PAR APPIMAGE) ---
+# --- GESTION DU FICHIER DESKTOP ---
+# Correction de la catégorie pour éviter les avertissements (un seul "main category")
 if [ -f packaging/deb/mcpanel.desktop ]; then
     cp packaging/deb/mcpanel.desktop "$APPDIR/usr/share/applications/"
     cp packaging/deb/mcpanel.desktop "$APPDIR/mcpanel.desktop"
@@ -50,6 +53,7 @@ EOF
     cp "$APPDIR/mcpanel.desktop" "$APPDIR/usr/share/applications/"
 fi
 
+# --- GESTION DE L'ICÔNE ---
 if [ -f app/static/img/default_icon.png ]; then
     cp app/static/img/default_icon.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/mcpanel.png"
     cp app/static/img/default_icon.png "$APPDIR/mcpanel.png"
@@ -57,7 +61,7 @@ else
     touch "$APPDIR/mcpanel.png"
 fi
 
-# AppRun launcher (indispensable)
+# AppRun launcher
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -65,7 +69,7 @@ exec "$HERE/usr/bin/mcpanel" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-# Download appimagetool
+# Téléchargement de appimagetool
 APPIMAGETOOL=$BUILD/appimagetool-x86_64.AppImage
 if [ ! -f "$APPIMAGETOOL" ]; then
     echo "Downloading appimagetool..."
@@ -73,10 +77,10 @@ if [ ! -f "$APPIMAGETOOL" ]; then
     chmod +x "$APPIMAGETOOL"
 fi
 
-# Build
+# Build de l'AppImage
 OUTFILE="$OUTDIR/${PKGNAME}-${VERSION}-x86_64.AppImage"
-echo "Building AppImage..."
-# --appimage-extract-and-run permet de fonctionner sans FUSE monté dans le runner
-"$APPIMAGETOOL" --appimage-extract-and-run "$APPDIR" "$OUTFILE"
+echo "Building AppImage for $ARCH..."
+# On force ARCH ici aussi au cas où
+ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run "$APPDIR" "$OUTFILE"
 
 echo "Built $OUTFILE"
