@@ -1,13 +1,19 @@
 async function changeLanguage(lang) {
+  // Delegate to global changeLanguage if available (app_pro.js)
+  if (typeof globalThis.changeLanguage === "function")
+    return globalThis.changeLanguage(lang);
+
   try {
-    const res = await apiFetch("/api/i18n/set_language", {
+    const res = await apiFetch("/api/i18n/language", {
       method: "POST",
-      body: JSON.stringify({ language: lang }),
+      body: JSON.stringify({ lang: lang }),
     });
     const result = await res.json();
     if (result.status === "success") {
       localStorage.setItem("mcp_lang", lang);
       location.reload();
+    } else {
+      console.warn("changeLanguage: server returned error", result);
     }
   } catch (err) {
     console.warn("changeLanguage failed", err);
@@ -15,7 +21,6 @@ async function changeLanguage(lang) {
 }
 // mcp_i18n.js
 // Gestion de l'internationalisation et application des traductions
-
 
 function applyTranslations() {
   // Traduire les éléments avec data-i18n (textContent)

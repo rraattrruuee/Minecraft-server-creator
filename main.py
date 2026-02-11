@@ -9,7 +9,7 @@ import requests
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response, send_file
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response, send_file, make_response
 
 from core.auth import AuthManager, admin_required, login_required
 from core.db import init_db
@@ -474,10 +474,13 @@ def api_get_translations():
 
 @app.route("/api/i18n/language", methods=["POST"])
 def api_set_language():
-    data = request.json
-    lang = data.get("lang", "fr")
+    data = request.json or {}
+    lang = data.get("lang") or request.args.get("lang") or "fr"
     if i18n.set_language(lang):
-        return jsonify({"status": "success", "lang": lang})
+        resp = make_response(jsonify({"status": "success", "lang": lang}))
+        # Persist language in cookie for long-term preference
+        resp.set_cookie("mcp_lang", lang, max_age=60 * 60 * 24 * 365, samesite="Lax")
+        return resp
     return jsonify({"status": "error", "message": "Langue non supportée"}), 400
 
 
@@ -836,6 +839,13 @@ def files_download(name):
 @app.route("/")
 @login_required
 def index():
+    # Allow overriding language via query param to enable direct links like /?lang=en
+    lang = request.args.get("lang")
+    resp = None
+    if lang and i18n.set_language(lang):
+        resp = make_response(render_template("index_pro.html"))
+        resp.set_cookie("mcp_lang", lang, max_age=60 * 60 * 24 * 365, samesite="Lax")
+        return resp
     return render_template("index_pro.html")
 
 

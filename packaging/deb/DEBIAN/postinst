@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+# Post-install: setup venv and enable service
+if [ -d /opt/mcpanel ]; then
+  if [ ! -d /opt/mcpanel/venv ]; then
+    python3 -m venv /opt/mcpanel/venv || true
+    . /opt/mcpanel/venv/bin/activate
+    pip install --upgrade pip || true
+    if [ -f /opt/mcpanel/requirements.txt ]; then
+      pip install -r /opt/mcpanel/requirements.txt || true
+    fi
+  fi
+fi
+
+# Enable and start systemd service if available
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload || true
+  systemctl enable mcpanel.service || true
+  systemctl restart mcpanel.service || true
+fi
+
+exit 0

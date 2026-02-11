@@ -517,16 +517,20 @@ class I18n:
     
     def get_language(self):
         """Récupère la langue actuelle"""
-        # Priorité: session > cookie > Accept-Language > défaut
+        # Priorité: session > cookie(mcp_lang) > Accept-Language > défaut
         if "lang" in session:
             return session["lang"]
-        
+
+        cookie_lang = request.cookies.get("mcp_lang")
+        if cookie_lang and cookie_lang in self.supported_languages:
+            return cookie_lang
+
         # Accept-Language header
         accept_lang = request.headers.get("Accept-Language", "")
         for lang in self.supported_languages:
             if lang in accept_lang.lower():
                 return lang
-        
+
         return self.default_lang
     
     def set_language(self, lang):

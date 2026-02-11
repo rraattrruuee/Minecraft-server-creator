@@ -1,0 +1,15 @@
+[Unit]
+Description=MCPanel Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+# Change to a dedicated user if you prefer
+WorkingDirectory=/opt/mcpanel
+ExecStart=/bin/bash -c '/opt/mcpanel/venv/bin/python /opt/mcpanel/main.py'
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

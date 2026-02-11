@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=MCPanel
+Comment=Minecraft server manager
+Exec=/usr/local/bin/mcpanel
+Icon=/opt/mcpanel/app/static/img/default_icon.png
+Terminal=false
+Type=Application
+Categories=Network;Utility;

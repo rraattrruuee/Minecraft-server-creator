@@ -8178,6 +8178,17 @@ async function changeLanguage(lang) {
       lang = "fr";
     }
 
+    // 1) Ask server to set language (session + cookie)
+    try {
+      await apiFetch("/api/i18n/language", {
+        method: "POST",
+        body: JSON.stringify({ lang }),
+      });
+    } catch (e) {
+      console.warn("Could not set server-side language", e);
+    }
+
+    // 2) Fetch translations for immediate application
     const response = await apiFetch(`/api/i18n/translations?lang=${lang}`);
     if (!response.ok) throw new Error("Language not found");
 
@@ -8191,6 +8202,18 @@ async function changeLanguage(lang) {
 
     applyTranslations();
     updateLanguageSelector();
+
+    // 3) Update URL so reloading or sharing keeps chosen lang
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("lang", lang);
+      history.replaceState({}, document.title, url.toString());
+    } catch (e) {}
+
+    // 4) Also set a client cookie for immediate persistence (same format as server)
+    try {
+      document.cookie = `mcp_lang=${lang};path=/;max-age=${60 * 60 * 24 * 365};samesite=Lax`;
+    } catch (e) {}
 
     showToast(
       "success",
@@ -8292,11 +8315,29 @@ function toggleLanguageDropdown() {
 }
 
 async function loadLanguage() {
-  const savedLang =
-    localStorage.getItem("language") ||
-    navigator.language.split("-")[0] ||
-    "fr";
-  const langToUse = SUPPORTED_LANGUAGES[savedLang] ? savedLang : "fr";
+  // Priority: URL param ?lang= > cookie 'mcp_lang' > localStorage > navigator > default
+  let urlLang = null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    urlLang = params.get("lang") || null;
+  } catch (e) {
+    urlLang = null;
+  }
+
+  function readCookie(name) {
+    const c = document.cookie.split(";").map((s) => s.trim());
+    for (const part of c) {
+      if (part.startsWith(name + "=")) return part.split("=")[1];
+    }
+    return null;
+  }
+
+  const cookieLang = readCookie("mcp_lang");
+  const storageLang = localStorage.getItem("language");
+  const navLang = (navigator.language || "").split("-")[0] || "fr";
+
+  const picked = urlLang || cookieLang || storageLang || navLang || "fr";
+  const langToUse = SUPPORTED_LANGUAGES[picked] ? picked : "fr";
 
   // Mettre à jour les sélecteurs
   document.querySelectorAll(".lang-select, #lang-select").forEach((select) => {
