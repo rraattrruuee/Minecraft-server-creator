@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11"]
+        python-version: ["3.13"]
 
     steps:
       - name: Checkout
@@ -44,7 +44,6 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          # libfuse2 est indispensable pour faire tourner appimagetool sur Ubuntu 24.04+
           sudo apt-get install -y rsync wget fakeroot dpkg-dev libfuse2
 
       - name: Run tests
@@ -52,7 +51,6 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         shell: bash
         run: |
-          # Utiliser bash sur Windows permet d'utiliser mkdir -p sans erreur
           mkdir -p scripts tests
           touch scripts/__init__.py
           touch tests/__init__.py
@@ -81,7 +79,8 @@ jobs:
       - name: Build Linux Packages (.deb & AppImage)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          rm -rf build_deb build_appimage
+          # S'assurer que les dossiers de packaging existent
+          mkdir -p packaging/deb
           chmod +x scripts/build_deb.sh scripts/build_appimage.sh
           ./scripts/build_deb.sh
           ./scripts/build_appimage.sh
