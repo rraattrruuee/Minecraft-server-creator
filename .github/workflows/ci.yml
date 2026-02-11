@@ -79,7 +79,8 @@ jobs:
       - name: Build Linux Packages (.deb & AppImage)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          # S'assurer que les dossiers de packaging existent
+          # Nettoyage et préparation
+          rm -rf build_deb build_appimage
           mkdir -p packaging/deb
           chmod +x scripts/build_deb.sh scripts/build_appimage.sh
           ./scripts/build_deb.sh
@@ -111,10 +112,9 @@ jobs:
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           path: artifacts
 
       - name: List final files
         run: |
-          ls -R artifacts || echo "Aucun artifact trouvé."
+          ls -R artifacts
