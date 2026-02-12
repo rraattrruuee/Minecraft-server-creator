@@ -94,6 +94,27 @@
           <span data-i18n="nav.notifications">Notifications</span>
           <span class="badge" id="notif-badge" style="display: none">0</span>
         </button>
+        <a href="/swarm/" class="nav-item">
+          <i class="fas fa-network-wired"></i>
+          <span>Swarm Infra</span>
+        </a>
+        <a href="/docker-dashboard" class="nav-item">
+          <i class="fab fa-docker"></i>
+          <span>Docker</span>
+        </a>
+        <a href="/marketplace" class="nav-item">
+          <i class="fas fa-shopping-bag"></i>
+          <span data-i18n="nav.marketplace">Marketplace</span>
+        </a>
+        <a
+          href="/admin/governance"
+          class="nav-item"
+          id="admin-gov-link"
+          style="display: none"
+        >
+          <i class="fas fa-gavel"></i>
+          <span>Gouvernance</span>
+        </a>
         <button
           class="nav-item"
           data-section="settings"
@@ -768,6 +789,112 @@
                 </button>
               </div>
 
+              <!-- Docker Configuration Section -->
+              <div
+                id="docker-config-section"
+                class="config-section"
+                style="
+                  margin-bottom: 20px;
+                  padding: 15px;
+                  background: rgba(0, 0, 0, 0.2);
+                  border-radius: 8px;
+                  display: none;
+                "
+              >
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                  "
+                >
+                  <h4 style="margin-top: 0">
+                    <i class="fab fa-docker"></i> Ressources Docker
+                  </h4>
+                  <button class="btn-primary" onclick="saveDockerConfig()">
+                    <i class="fas fa-save"></i> Mettre à jour
+                  </button>
+                </div>
+
+                <div
+                  style="
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 10px;
+                    margin-top: 10px;
+                  "
+                >
+                  <div class="form-group">
+                    <label>Port Host</label>
+                    <input
+                      id="d-port"
+                      type="number"
+                      class="config-input"
+                      placeholder="25565"
+                      style="
+                        width: 100%;
+                        padding: 8px;
+                        background: #333;
+                        border: 1px solid #555;
+                        border-radius: 4px;
+                        color: white;
+                      "
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>RAM Max (Ex: 4G)</label>
+                    <input
+                      id="d-ram-max"
+                      type="text"
+                      class="config-input"
+                      placeholder="2G"
+                      style="
+                        width: 100%;
+                        padding: 8px;
+                        background: #333;
+                        border: 1px solid #555;
+                        border-radius: 4px;
+                        color: white;
+                      "
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>RAM Init (Ex: 2G)</label>
+                    <input
+                      id="d-ram-min"
+                      type="text"
+                      class="config-input"
+                      placeholder="1G"
+                      style="
+                        width: 100%;
+                        padding: 8px;
+                        background: #333;
+                        border: 1px solid #555;
+                        border-radius: 4px;
+                        color: white;
+                      "
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>CPU Limit (Ex: 2.0)</label>
+                    <input
+                      id="d-cpu"
+                      type="text"
+                      class="config-input"
+                      placeholder="2.0"
+                      style="
+                        width: 100%;
+                        padding: 8px;
+                        background: #333;
+                        border: 1px solid #555;
+                        border-radius: 4px;
+                        color: white;
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+
               <h3>server.properties</h3>
               <div class="config-scroll-container">
                 <div class="config-grid" id="config-grid"></div>
@@ -1384,6 +1511,59 @@
             </div>
             <div class="settings-content">
               <div class="users-list" id="users-list"></div>
+            </div>
+          </div>
+
+          <!-- Docker installer (admin only) -->
+          <div class="settings-card admin-only" id="docker-installer-settings">
+            <div class="settings-card-header">
+              <i class="fas fa-docker"></i>
+              <h3>Docker</h3>
+            </div>
+            <div class="settings-content">
+              <div class="setting-row">
+                <label>Statut</label>
+                <div>
+                  <span id="docker-status" class="text-muted"
+                    >Vérification...</span
+                  >
+                </div>
+              </div>
+              <div class="setting-row">
+                <label>Installer Docker</label>
+                <div>
+                  <button
+                    id="install-docker-btn"
+                    class="btn-primary"
+                    onclick="installDockerUI()"
+                  >
+                    Installer Docker
+                  </button>
+                  <button
+                    id="install-docker-sync-btn"
+                    class="btn"
+                    onclick="installDockerUI(false)"
+                  >
+                    Synchronique
+                  </button>
+                </div>
+                <div style="margin-top: 8px; font-size: 0.9rem; color: #666">
+                  L'installation nécessite des privilèges sudo/administrateur
+                  sur la machine.
+                </div>
+              </div>
+              <div class="setting-row">
+                <label>Dernier log</label>
+                <div>
+                  <a
+                    id="docker-log-link"
+                    href="#"
+                    target="_blank"
+                    style="display: none"
+                    >Voir le log d'installation</a
+                  >
+                </div>
+              </div>
             </div>
           </div>
 

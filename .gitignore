@@ -279,3 +279,12 @@ test_results/
 
 data/notifications_history.json
 
+# Installers / scripts outputs (Docker installer logs, downloaded installers)
+scripts/docker-install-logs/
+installers/
+installers/*.msi
+installers/*.exe
+*.msi
+*.exe
+*.zip
+

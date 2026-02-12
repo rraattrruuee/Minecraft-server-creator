@@ -25,6 +25,14 @@ from core.jobs import get_job_manager
 from core.scheduler import BackupScheduler
 from core.stats import PlayerStatsManager
 from core.tunnel import TunnelManager, get_tunnel_manager
+from core.docker_installer import is_docker_installed, install_docker_sync, install_docker_async
+from core.rate_limiter import limiter
+from core.quota import QuotaManager
+from core.marketplace import MarketplaceManager
+from core.billing import BillingManager
+from core.webhooks import WebhookManager
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+
 try:
     from PIL import Image
 except Exception:
@@ -39,6 +47,59 @@ if sys.platform == "win32":
         pass  # Python < 3.7
 
 app = Flask(__name__, template_folder="app/templates", static_folder="app/static")
+limiter.init_app(app)
+quota_mgr = QuotaManager()
+market_mgr = MarketplaceManager()
+billing_mgr = BillingManager(None) # initialized later
+webhook_mgr = WebhookManager()
+
+# Feature: Maintenance Mode
+MAINTENANCE_MODE = os.path.exists("data/maintenance.flag")
+
+@app.route('/s/<server_id>')
+@login_required
+def server_redirect(server_id):
+    """Router sécurisé: Redirige l'utilisateur vers son serveur si l'ID correspond"""
+    server_name = srv_mgr.find_server_by_id(server_id)
+    if not server_name:
+        return render_template("404.html"), 404
+        
+    cfg = srv_mgr.get_server_config(server_name)
+    owner = cfg.get("owner")
+    current_user = session.get("user", {}).get("username")
+    role = session.get("user", {}).get("role")
+    
+    # Sécurité renforcée: seul le propriétaire ou admin peut accéder
+    if role != "admin" and owner != current_user:
+        return render_template("403.html", message="Ce serveur ne vous appartient pas."), 403
+        
+    # Redirection vers le dashboard serveur
+    return redirect(url_for('server_dashboard', name=server_name))
+
+@app.route('/metrics')
+def metrics():
+    return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+@app.route('/marketplace')
+@login_required
+def marketplace_ui():
+    return render_template('marketplace.html')
+
+@app.route('/api/market/search')
+@login_required
+def api_market_search():
+    query = request.args.get('q', '')
+    results = market_mgr.search_plugins(query)
+    return jsonify({"status": "success", "results": results})
+
+# Swarm Integration
+from app.swarm_routes import swarm_bp
+app.register_blueprint(swarm_bp)
+
+# Docker Dashboard Integration
+from app.docker_routes import app_docker
+app.register_blueprint(app_docker)
+
 app.config['JSON_AS_ASCII'] = False
 
 # Persistent Secret Key
@@ -77,7 +138,31 @@ except Exception:
 
 # ===================== SECURITY MIDDLEWARE =====================
 @app.before_request
+def maintenance_check():
+    """Middleware pour bloquer l'accès en mode maintenance"""
+    global MAINTENANCE_MODE
+    if MAINTENANCE_MODE:
+        # Allow static files and login
+        if request.path.startswith("/static") or request.path.startswith("/api/auth") or request.path == "/maintenance":
+            return
+        
+        # Allow admins
+        if "user" in session and session["user"].get("role") == "admin":
+            return
+            
+        if request.is_json or request.path.startswith("/api"):
+            return jsonify({"status": "error", "message": "Service en maintenance"}), 503
+        
+        return "<h1>Service en Maintenance</h1><p>Nous revenons bientôt.</p>", 503
+
+@app.before_request
 def csrf_protect():
+    # Session Revocation Check
+    if "user" in session and "login_time" in session:
+        if not auth_mgr.is_session_valid(session["user"]["username"], session["login_time"]):
+            session.clear()
+            return jsonify({"status": "error", "message": "Session révoquée, veuillez vous reconnecter"}), 401
+
     if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
         token = session.get("_csrf_token")
         header_token = request.headers.get("X-CSRF-Token")
@@ -271,6 +356,7 @@ def check_java():
 
 # Initialiser les managers
 srv_mgr = ServerManager()
+billing_mgr.srv_mgr = srv_mgr
 stats_mgr = PlayerStatsManager(srv_mgr.base_dir)
 plugin_mgr = PluginManager(srv_mgr.base_dir)
 server_monitor = ServerMonitor(srv_mgr, metrics_collector)
@@ -282,6 +368,41 @@ config_editor = ConfigEditor(srv_mgr.base_dir)
 # Démarrer la collecte des métriques serveurs après initialisation des managers
 threading.Thread(target=collect_server_metrics_task, daemon=True).start()
 
+# ===================== ADMIN EXTENSIONS =====================
+
+@app.route("/api/admin/maintenance", methods=["POST"])
+@admin_required
+def set_maintenance():
+    data = request.json
+    enable = data.get("enabled", False)
+    global MAINTENANCE_MODE
+    MAINTENANCE_MODE = enable
+    
+    if enable:
+        with open("data/maintenance.flag", "w") as f: f.write("1")
+    else:
+        if os.path.exists("data/maintenance.flag"): os.remove("data/maintenance.flag")
+        
+    auth_mgr._log_audit(session["user"]["username"], "MAINTENANCE", str(enable))
+    return jsonify({"status": "success", "maintenance": enable})
+
+@app.route("/api/admin/revoke-user", methods=["POST"])
+@admin_required
+def revoke_user_sessions():
+    """Révoque les sessions d'un utilisateur"""
+    username = request.json.get("username")
+    if username:
+        auth_mgr.revoke_user_sessions(username)
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error", "message": "Username required"}), 400
+
+@app.route("/api/server/<name>/cost")
+@login_required
+def get_server_cost(name):
+    """Estime les coûts d'un serveur"""
+    config = srv_mgr.get_server_config(name)
+    estimation = billing_mgr.estimate_server_cost(config)
+    return jsonify({"status": "success", "estimation": estimation})
 
 # ===================== ROUTES PING/STATUS =====================
 
@@ -530,11 +651,14 @@ def api_login():
         ip = request.remote_addr
             
     otp = data.get('otp')
+    # Diagnostic: call authenticate and log result server-side for debugging
     user, error = auth_mgr.authenticate(username, password, client_ip=ip, otp=otp)
+    print(f"[AUTH DEBUG] authenticate returned user={bool(user)} error={error}")
     if user:
         session.clear()
         session.permanent = True
         session["user"] = user
+        session["login_time"] = int(time.time()) # Added for revocation
         session["_csrf_token"] = secrets.token_hex(32)
         auth_mgr._log_audit(username, "LOGIN_SUCCESS_SESSION", ip)
         return jsonify({"status": "success", "user": user})
@@ -557,6 +681,36 @@ def api_register():
     if success:
         # Auto-login après inscription
         user, _ = auth_mgr.authenticate(username, password)
+        session.clear()
+        session.permanent = True
+        session["user"] = user
+        return jsonify({"status": "success", "user": user})
+    return jsonify({"status": "error", "message": msg or "Erreur"}), 400
+
+
+# Debug endpoint (admin only) — utile pour diagnostiquer pourquoi une connexion échoue
+@app.route('/api/debug/user/<username>')
+@admin_required
+def debug_get_user(username):
+    """Retourne des infos non sensibles sur l'utilisateur (admin only)."""
+    try:
+        from core.db import get_session, User
+        s = get_session()
+        u = s.query(User).filter(User.username == username).first()
+        if not u:
+            return jsonify({"found": False}), 404
+        return jsonify({
+            "found": True,
+            "username": u.username,
+            "role": u.role,
+            "last_login": u.last_login.isoformat() if u.last_login else None,
+            "failed_attempts": u.failed_attempts or 0,
+            "locked_until": u.locked_until.isoformat() if getattr(u, 'locked_until', None) else None,
+            "needs_password_reset": bool(getattr(u, 'needs_password_reset', False)),
+            "totp_enabled": bool(getattr(u, 'totp_enabled', False))
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
         if user:
             session["user"] = user
             return jsonify({"status": "success", "message": "Compte créé avec succès", "user": user})
@@ -1282,6 +1436,18 @@ def create():
             return jsonify({"status": "error", "message": "Données manquantes"}), 400
         
         name = data.get("name", "").strip()
+        
+        # Quota Check
+        user_role = session["user"].get("role", "user")
+        usage = {
+            "servers": len(srv_mgr.list_servers()),
+            "memory_mb": 0 # TODO: Calculate real memory usage from all servers
+        }
+        quota_check = quota_mgr.check_resource_availability(user_role, usage, data)
+        if not quota_check["allowed"]:
+             auth_mgr._log_audit(session["user"]["username"], "CREATE_DENIED", quota_check["reason"])
+             return jsonify({"status": "error", "message": quota_check["reason"]}), 403
+
         version = data.get("version", "").strip()
         ram_min = data.get("ram_min", "1024M")
         ram_max = data.get("ram_max", "2048M")
@@ -1488,6 +1654,30 @@ def config(name):
         return jsonify(srv_mgr.get_properties(name))
     except Exception as e:
         print(f"[ERROR] Erreur config: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/server/<name>/docker", methods=["GET", "POST"])
+@login_required
+def docker_config(name):
+    try:
+        if request.method == "POST":
+            # Security: Ensure user has rights (TODO: checks via set_server_config logic)
+            data = request.json
+            srv_mgr.update_docker_resources(
+                name,
+                port=data.get("port"),
+                ram_max=data.get("ram_max"),
+                ram_min=data.get("ram_min"),
+                cpu_limit=data.get("cpu_limit")
+            )
+            auth_mgr._log_audit(session["user"]["username"], "DOCKER_UPDATE", f"{name}: {data}")
+            return jsonify({"status": "success", "message": "Configuration Docker mise à jour"})
+        
+        # GET
+        data = srv_mgr.get_docker_resources(name)
+        return jsonify({"status": "success", "config": data})
+    except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1727,8 +1917,15 @@ def upload_plugin(name):
         if stype != 'paper':
             return jsonify({"status": "error", "message": f"Serveur de type '{stype}' détecté: upload de plugins (.jar Bukkit) non supporté. Utilisez l'onglet Mods pour installer des mods."}), 400
 
-        plugins_dir = os.path.join("servers", name, "plugins")
-        os.makedirs(plugins_dir, exist_ok=True)
+        # Fix: Plugins are inside data/plugins for docker servers
+        plugins_dir = os.path.join("servers", name, "data", "plugins")
+        if not os.path.exists(plugins_dir):
+            # Fallback for legacy
+            legacy = os.path.join("servers", name, "plugins")
+            if os.path.exists(legacy):
+                plugins_dir = legacy
+            else:
+                 os.makedirs(plugins_dir, exist_ok=True)
         
         filepath = os.path.join(plugins_dir, filename)
         file.save(filepath)
@@ -2403,6 +2600,38 @@ def system_history():
         limit = int(request.args.get("limit", 60)) # Default 60 points (5 mins approx)
         data = metrics_collector.get_system_metrics(limit)
         return jsonify({"status": "success", "history": data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/system/docker-status')
+@login_required
+def api_docker_status():
+    """Retourne si Docker est présent sur la machine (bool)."""
+    try:
+        return jsonify({"installed": is_docker_installed()})
+    except Exception:
+        return jsonify({"installed": False}), 500
+
+
+@app.route('/api/system/install-docker', methods=['POST'])
+@admin_required
+def api_install_docker():
+    """Lance l'installation automatique de Docker pour l'OS courant.
+    Paramètres (optionnels) : ?async=true|false (par défaut true).
+    Retourne immédiatement un `task_id` et un `log` si async, sinon le résultat synchronisé.
+    """
+    try:
+        if is_docker_installed():
+            return jsonify({"status": "already_installed", "message": "Docker est déjà installé"})
+
+        async_flag = request.args.get('async', 'true').lower() != 'false'
+        if async_flag:
+            res = install_docker_async()
+            return jsonify({"status": "started", "task": res.get('task_id'), "log": res.get('log')})
+
+        res = install_docker_sync()
+        return jsonify(res)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -3719,38 +3948,82 @@ def api_version():
 import threading
 import json  # S'assurer que json est importé pour SSE
 
+@app.route("/admin/governance")
+@login_required
+@admin_required
+def admin_governance():
+    return render_template("admin_governance.html")
 
 if __name__ == "__main__":
+    
+    # Initialize HA Manager in background if Swarm is active
+    try:
+        from core.swarm_deployer import SwarmDeployer
+        from core.ha_manager import HighAvailabilityManager
+        
+        # Simple check if config exists
+        swarm_conf_path = 'data/swarm_config.json'
+        if os.path.exists(swarm_conf_path):
+             with open(swarm_conf_path) as f:
+                 conf = json.load(f)
+                 deployer = SwarmDeployer(conf)
+                 if deployer.check_swarm_status().get('active'):
+                     ha_mgr = HighAvailabilityManager(deployer)
+                     ha_thread = threading.Thread(target=ha_mgr.monitor_loop, daemon=True)
+                     ha_thread.start()
+                     print("[HA] High Availability Manager started.")
+    except Exception as e:
+        pass
+
     if not os.path.exists("servers"):
         os.makedirs("servers")
     
     java_ok = check_java()
-    
-    # Banner ASCII amélioré
-    print("""
-╔══════════════════════════════════════════════════════════════╗
-║                     ⚡ MCPanel Pro ⚡                        ║
-║            Minecraft Server Manager v2.0                     ║
-╠══════════════════════════════════════════════════════════════╣
-║  🐍 Python: {:<15}  ☕ Java: {:<18}     ║
-║  📁 Serveurs: {:<45}  ║
-║  🌐 URL: http://127.0.0.1:5000                               ║
-╚══════════════════════════════════════════════════════════════╝
-    """.format(
-        sys.version.split()[0],
-        'OK ✓' if java_ok else 'NON TROUVE ✗',
-        os.path.abspath('servers')[:45]
-    ))
+
+    # Vérifier Docker et option d'installation automatique via CLI/ENV
+    docker_ok = is_docker_installed()
+    if not docker_ok and ("--install-docker" in sys.argv or os.getenv('AUTO_INSTALL_DOCKER', '0') == '1'):
+        print("[INFO] Docker non trouvé — tentative d'installation automatique demandée")
+        try:
+            res = install_docker_sync()
+            docker_ok = bool(res.get('success'))
+            if docker_ok:
+                print("[INFO] Docker installé avec succès")
+            else:
+                print(f"[WARN] Installation Docker échouée — voir log: {res.get('log')}")
+        except Exception as e:
+            print(f"[ERROR] Erreur lors de l'installation automatique de Docker: {e}")
+
+    import platform
+    py_ver = platform.python_version()
+    java_status = "OK \u2713" if java_ok else "MISSING \u2717"
+    docker_status = "OK \u2713" if docker_ok else "MISSING \u2717"
+    servers_dir = os.path.abspath("servers")
+    if len(servers_dir) > 50:
+        servers_dir = "..." + servers_dir[-47:]
+
+    print(f"""
+╔════════════════════════════════════════════════════════════════════════╗
+║                         ⚡ MCPanel Pro ⚡                              ║
+║                Minecraft Server Manager v0.2.6                         ║
+╠════════════════════════════════════════════════════════════════════════╣
+║  🐍 Python: {py_ver:<11} ☕ Java: {java_status:<11}  🐳 Docker: {docker_status:<11}   ║
+║  📁 Serveurs: {servers_dir:<57}║
+║  🌐 URL: http://127.0.0.1:5000                                         ║
+╚════════════════════════════════════════════════════════════════════════╝
+    """)
     
     try:
         app.run(debug=False, host="0.0.0.0", port=5000, threaded=True)
     except KeyboardInterrupt:
         print("\n[INFO] Arrêt en cours...")
-        for name in list(srv_mgr.procs.keys()):
-            print(f"[INFO] Arrêt du serveur: {name}")
-            srv_mgr.stop(name)
-        metrics_collector.stop()
-        server_monitor.stop()
+        try:
+            for name in list(srv_mgr.procs.keys()):
+                print(f"[INFO] Arrêt du serveur: {name}")
+                srv_mgr.stop(name)
+            metrics_collector.stop()
+            server_monitor.stop()
+        except: pass
         print("[INFO] MCPanel arrêté proprement.")
     except Exception as e:
         print(f"[FATAL] Erreur critique: {e}")

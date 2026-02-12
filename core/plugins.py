@@ -18,9 +18,23 @@ class PluginManager:
         return name
 
     def _get_plugins_path(self, srv_name):
-        """Retourne le chemin sécurisé du dossier plugins"""
+        """Retourne le chemin sécurisé du dossier plugins (Compatible Docker/Legacy)"""
         srv_name = self._validate_server_name(srv_name)
-        path = os.path.join(self.base_dir, srv_name, "plugins")
+        server_root = os.path.join(self.base_dir, srv_name)
+        
+        # Détection structure Docker vs Legacy
+        docker_plugins_path = os.path.join(server_root, "data", "plugins")
+        legacy_plugins_path = os.path.join(server_root, "plugins")
+
+        if os.path.exists(os.path.join(server_root, "docker-compose.yml")):
+            path = docker_plugins_path
+            if not os.path.exists(path):
+                os.makedirs(path, exist_ok=True)
+        elif os.path.exists(docker_plugins_path):
+             path = docker_plugins_path
+        else:
+            path = legacy_plugins_path
+
         if not os.path.abspath(path).startswith(os.path.abspath(self.base_dir)):
             raise Exception("Chemin invalide")
         return path

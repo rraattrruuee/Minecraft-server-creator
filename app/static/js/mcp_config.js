@@ -55,6 +55,10 @@ const CONFIG_LABELS = {
 
 async function loadConfig() {
   if (!currentServer) return;
+
+  // Load Docker Config as well
+  loadDockerConfig();
+
   try {
     const response = await apiFetch(`/api/server/${currentServer}/config`);
     const config = await response.json();
@@ -208,4 +212,55 @@ try {
   initConfig();
 } catch (e) {
   console.warn("initConfig failed", e);
+}
+
+async function loadDockerConfig() {
+    const section = document.getElementById("docker-config-section");
+    if (!section || !currentServer) return;
+
+    try {
+        const response = await apiFetch(`/api/server/${currentServer}/docker`);
+        const data = await response.json();
+        
+        if (data.status === "success" && data.config && Object.keys(data.config).length > 0 && !data.config.legacy) {
+            section.style.display = "block";
+            const cfg = data.config;
+            document.getElementById("d-port").value = cfg.port || "";
+            document.getElementById("d-ram-max").value = cfg.ram_max || "";
+            document.getElementById("d-ram-min").value = cfg.ram_min || "";
+            document.getElementById("d-cpu").value = cfg.cpu_limit || "";
+        } else {
+            section.style.display = "none";
+        }
+    } catch (e) {
+        console.warn("Docker config load error:", e);
+        section.style.display = "none";
+    }
+}
+
+async function saveDockerConfig() {
+    if (!currentServer) return;
+    
+    const payload = {
+        port: document.getElementById("d-port").value,
+        ram_max: document.getElementById("d-ram-max").value,
+        ram_min: document.getElementById("d-ram-min").value,
+        cpu_limit: document.getElementById("d-cpu").value
+    };
+    
+    try {
+        const response = await apiFetch(`/api/server/${currentServer}/docker`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (data.status === "success") {
+            showToast("Configuration Docker sauvegardée", "success");
+        } else {
+            showToast(data.message || "Erreur sauvegarde", "error");
+        }
+    } catch (e) {
+        showToast("Erreur communication: " + e, "error");
+    }
 }

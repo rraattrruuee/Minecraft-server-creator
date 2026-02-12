@@ -33,11 +33,29 @@ class ModManager:
         return name
     
     def _get_mods_path(self, srv_name: str) -> str:
-        """Retourne le chemin sécurisé du dossier mods"""
+        """Retourne le chemin sécurisé du dossier mods (Compatible Docker/Legacy)"""
         srv_name = self._validate_server_name(srv_name)
-        path = os.path.join(self.base_dir, srv_name, "mods")
+        server_root = os.path.join(self.base_dir, srv_name)
+        
+        # Détection structure Docker vs Legacy
+        # Docker: servers/<name>/data/mods
+        # Legacy: servers/<name>/mods
+        docker_mods_path = os.path.join(server_root, "data", "mods")
+        legacy_mods_path = os.path.join(server_root, "mods")
+
+        if os.path.exists(os.path.join(server_root, "docker-compose.yml")):
+            path = docker_mods_path
+            if not os.path.exists(path):
+                os.makedirs(path, exist_ok=True)
+        elif os.path.exists(docker_mods_path):
+             path = docker_mods_path
+        else:
+            path = legacy_mods_path
+
+        # Sécurité Path Traversal
         if not os.path.abspath(path).startswith(os.path.abspath(self.base_dir)):
             raise Exception("Chemin invalide")
+            
         return path
     
     def search(self, query: str, loader: str = None, mc_version: str = None, 

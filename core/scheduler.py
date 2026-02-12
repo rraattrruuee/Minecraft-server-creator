@@ -186,6 +186,44 @@ class BackupScheduler:
             })
         return result
     
+    def _upload_to_s3(self, filepath):
+        """Charger un backup vers S3/MinIO"""
+        s3_endpoint = os.getenv("S3_ENDPOINT")
+        s3_access = os.getenv("S3_ACCESS_KEY")
+        s3_secret = os.getenv("S3_SECRET_KEY")
+        s3_bucket = os.getenv("S3_BUCKET", "minecraft-backups")
+        
+        if not (s3_endpoint and s3_access and s3_secret):
+            return
+
+        try:
+            import boto3
+            s3 = boto3.client('s3', 
+                endpoint_url=s3_endpoint,
+                aws_access_key_id=s3_access,
+                aws_secret_access_key=s3_secret
+            )
+            filename = os.path.basename(filepath)
+            print(f"[BACKUP] Uploading {filename} to S3...")
+            s3.upload_file(filepath, s3_bucket, filename)
+            print("[BACKUP] Upload S3 success")
+        except Exception as e:
+            print(f"[BACKUP] S3 upload failed: {e}")
+
+    def _verify_backup_integrity(self, zip_path):
+        """Vérifie que le zip est valide"""
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                bad_file = zip_ref.testzip()
+                if bad_file:
+                    print(f"[BACKUP] Intégrité corrompue: {bad_file}")
+                    return False
+            print(f"[BACKUP] Intégrité ZIP validée: {zip_path}")
+            return True
+        except Exception as e:
+            print(f"[BACKUP] Erreur vérification ZIP: {e}")
+            return False
+
     def _execute_backup(self, server_name, config):
         """Exécute une sauvegarde planifiée"""
         print(f"[SCHEDULER] Exécution backup planifié: {server_name}")
@@ -198,12 +236,23 @@ class BackupScheduler:
                 print(f"[SCHEDULER] Échec backup {server_name}")
                 return
             
+            backup_path = result.get("path", "")
+            
             # Compression si activée
             if config.get("compress", True):
-                backup_path = result.get("path", "")
                 if backup_path and os.path.isdir(backup_path):
-                    self._compress_backup(backup_path)
+                    zip_path = self._compress_backup(backup_path)
+                    if zip_path:
+                        # Auto-Validation Feature
+                        if self._verify_backup_integrity(zip_path):
+                            backup_path = zip_path 
+                        else:
+                            print("[SCHEDULER] Backup corrompu supprimé des candidats à l'upload")
             
+            # S3 Upload
+            if backup_path and os.path.exists(backup_path):
+                 self._upload_to_s3(backup_path)
+
             # Rotation - supprimer les vieux backups
             retention = config.get("retention", 7)
             self._rotate_backups(server_name, retention)

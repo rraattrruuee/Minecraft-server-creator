@@ -1,0 +1,104 @@
+{% extends "base.html" %} {% block title %}Marketplace{% endblock %} {% block
+content %}
+<div class="row">
+  <div class="col-md-12">
+    <h1 class="mb-4">Marketplace (Modrinth)</h1>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="input-group">
+          <input
+            type="text"
+            id="marketSearch"
+            class="form-control"
+            placeholder="Rechercher des plugins/mods..."
+            onkeypress="handleEnter(event)"
+          />
+          <div class="input-group-append">
+            <button class="btn btn-primary" onclick="searchMarket()">
+              Rechercher
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="marketLoading" class="text-center d-none">
+      <div class="spinner-border text-primary" role="status">
+        <span class="sr-only">Chargement...</span>
+      </div>
+      <p>Recherche en cours...</p>
+    </div>
+
+    <div id="marketResults" class="row">
+      <!-- Results will be injected here -->
+    </div>
+  </div>
+</div>
+
+<script>
+  function handleEnter(e) {
+    if (e.key === "Enter") searchMarket();
+  }
+
+  async function searchMarket() {
+    const query = document.getElementById("marketSearch").value;
+    if (!query) return;
+
+    document.getElementById("marketResults").innerHTML = "";
+    document.getElementById("marketLoading").classList.remove("d-none");
+
+    try {
+      const res = await fetch(
+        `/api/market/search?q=${encodeURIComponent(query)}`,
+      );
+      const data = await res.json();
+
+      document.getElementById("marketLoading").classList.add("d-none");
+
+      if (data.status === "success" && data.results.length > 0) {
+        renderResults(data.results);
+      } else {
+        document.getElementById("marketResults").innerHTML =
+          '<div class="col-12 text-center"><p>Aucun résultat trouvé.</p></div>';
+      }
+    } catch (e) {
+      console.error(e);
+      document.getElementById("marketLoading").classList.add("d-none");
+      alert("Erreur lors de la recherche");
+    }
+  }
+
+  function renderResults(items) {
+    const container = document.getElementById("marketResults");
+    items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "col-md-4 mb-4";
+      card.innerHTML = `
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <img src="${item.icon || "https://via.placeholder.com/64"}" style="width: 48px; height: 48px; object-fit: contain;" class="mr-3">
+                            <h5 class="card-title mb-0 text-truncate">${item.title}</h5>
+                        </div>
+                        <p class="card-text small text-muted" style="height: 60px; overflow: hidden;">${item.desc}</p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="badge badge-info">${item.author}</span>
+                            <span class="small"><i class="fas fa-download"></i> ${item.downloads}</span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-sm btn-outline-success btn-block" onclick="installPlugin('${item.id}')">Installer</button>
+                    </div>
+                </div>
+            `;
+      container.appendChild(card);
+    });
+  }
+
+  function installPlugin(id) {
+    // TODO: Implement install modal with server selection
+    alert("Fonctionnalité d'installation à venir pour ID: " + id);
+  }
+</script>
+{% endblock %}

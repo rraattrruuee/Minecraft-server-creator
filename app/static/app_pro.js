@@ -7591,6 +7591,134 @@ async function loadSettings() {
   if (savedSettings.sounds !== undefined) {
     document.getElementById("sounds-toggle").checked = savedSettings.sounds;
   }
+
+  // Si admin, vérifier le statut Docker pour afficher le bouton
+  try {
+    if (currentUser?.role === "admin") {
+      checkDockerStatus();
+    }
+  } catch (e) {
+    console.warn("checkDockerStatus failed:", e);
+  }
+}
+
+// Docker installer UI helpers (admin)
+async function checkDockerStatus() {
+  const statusEl = document.getElementById("docker-status");
+  const btn = document.getElementById("install-docker-btn");
+  const syncBtn = document.getElementById("install-docker-sync-btn");
+  const logLink = document.getElementById("docker-log-link");
+
+  if (!statusEl || !btn || !syncBtn) return;
+  statusEl.textContent = "Vérification...";
+  btn.disabled = true;
+  syncBtn.disabled = true;
+
+  try {
+    const res = await apiFetch("/api/system/docker-status");
+    const data = await res.json();
+    if (data.installed) {
+      statusEl.textContent = "Installé";
+      statusEl.classList.remove("text-muted");
+      statusEl.classList.add("text-success");
+      btn.disabled = true;
+      syncBtn.disabled = true;
+      if (logLink) logLink.style.display = "none";
+    } else {
+      statusEl.textContent = "Non installé";
+      statusEl.classList.remove("text-success");
+      statusEl.classList.add("text-muted");
+      btn.disabled = false;
+      syncBtn.disabled = false;
+      if (logLink) logLink.style.display = "none";
+    }
+  } catch (e) {
+    console.warn("checkDockerStatus error", e);
+    statusEl.textContent = "Impossible de vérifier";
+    btn.disabled = false;
+    syncBtn.disabled = false;
+  }
+}
+
+async function installDockerUI(asyncFlag = true) {
+  const btn = document.getElementById("install-docker-btn");
+  const syncBtn = document.getElementById("install-docker-sync-btn");
+  const statusEl = document.getElementById("docker-status");
+  const logLink = document.getElementById("docker-log-link");
+
+  if (!btn || !statusEl) return;
+  btn.disabled = true;
+  syncBtn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = asyncFlag ? "Lancement..." : "Installation...";
+  showToast("info", "Lancement de l'installation de Docker...");
+
+  try {
+    const res = await apiFetch(
+      `/api/system/install-docker?async=${asyncFlag}`,
+      { method: "POST" },
+    );
+    const data = await res.json();
+
+    if (data.status === "started") {
+      showToast("info", "Installation lancée en tâche de fond");
+      if (logLink && data.log) {
+        logLink.style.display = "inline";
+        logLink.textContent = data.log;
+        logLink.href = "#";
+      }
+      // Poller le statut Docker pour détecter la fin (toutes les 3s, 1 min)
+      let attempts = 0;
+      const maxAttempts = 20;
+      const poll = setInterval(async () => {
+        attempts += 1;
+        try {
+          const st = await (await apiFetch("/api/system/docker-status")).json();
+          if (st.installed) {
+            clearInterval(poll);
+            showToast("success", "Docker installé avec succès");
+            btn.textContent = prevText;
+            await checkDockerStatus();
+          } else if (attempts >= maxAttempts) {
+            clearInterval(poll);
+            showToast(
+              "warning",
+              "Installation en cours — vérifier le log sur le serveur",
+            );
+            btn.textContent = prevText;
+            await checkDockerStatus();
+          }
+        } catch (e) {
+          clearInterval(poll);
+          console.warn("Poll docker-status failed", e);
+          btn.textContent = prevText;
+          showToast("error", "Erreur de vérification du statut Docker");
+        }
+      }, 3000);
+    } else if (data.success) {
+      showToast("success", "Docker installé");
+      if (logLink && data.log) {
+        logLink.style.display = "inline";
+        logLink.textContent = data.log;
+      }
+      await checkDockerStatus();
+    } else {
+      showToast("error", data.message || "Échec installation Docker");
+      if (data.log && logLink) {
+        logLink.style.display = "inline";
+        logLink.textContent = data.log;
+      }
+      btn.textContent = prevText;
+      btn.disabled = false;
+      syncBtn.disabled = false;
+    }
+  } catch (e) {
+    console.error("installDockerUI error", e);
+    showToast("error", "Erreur API");
+    btn.textContent = prevText;
+    btn.disabled = false;
+    syncBtn.disabled = false;
+  }
 }
 
 function toggleAnimations(enabled) {

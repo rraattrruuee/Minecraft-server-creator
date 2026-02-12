@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'minecraft-panel'
+    scrape_interval: 5s
+    # Note: On Linux, host.docker.internal may need extra config.
+    # Replace with host IP if needed.
+    static_configs:
+      - targets: ['host.docker.internal:5000'] 

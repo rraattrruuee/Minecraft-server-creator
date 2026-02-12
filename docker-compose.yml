@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  mcpanel:
+    build: .
+    container_name: mcpanel_pro
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./servers:/app/servers
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # Bind mount Docker socket to allow spawning sibling containers (Minecraft servers / Swarm)
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - MCPANEL_DOCKERIZED=true
+      - MCPANEL_FORCE_SECURE=0
+      - FLASK_ENV=production
+    networks:
+      - mcpanel-net
+
+networks:
+  mcpanel-net:
+    driver: bridge

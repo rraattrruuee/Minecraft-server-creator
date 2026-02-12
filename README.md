@@ -1,7 +1,5 @@
 # MCPanel# 🎮 Manager Ultimate - Gestionnaire de Serveurs Minecraft
 
-
-
 Panel de gestion de serveurs Minecraft PaperMC. Permet de créer, configurer et administrer plusieurs serveurs depuis une interface web. Manager web professionnel pour créer et gérer plusieurs serveurs Minecraft PaperMC avec une interface moderne.
 
 > ⚠️ **Accès par défaut** : le premier compte créé par l'application est **username:** `admin` et **password:** `admin`. Changez ce mot de passe immédiatement après la première connexion.
@@ -50,6 +48,7 @@ Le script crée une sauvegarde `data/users.json.bak` après l'import.
 Ce projet utilise maintenant une base SQLite (`data/mcpanel.db`) et SQLAlchemy pour gérer les comptes utilisateurs, la 2FA et les journaux d'audit. Voici un guide pas-à-pas pour effectuer la migration en toute sécurité.
 
 ### 1) Pré-requis
+
 - Assurez-vous d'avoir un environnement virtuel activé et les dépendances installées :
 
 ```bash
@@ -58,6 +57,7 @@ pip install -r requirements.txt
 ```
 
 ### 2) Initialiser la base et appliquer les migrations Alembic
+
 - Initialisez la DB et appliquez les migrations (créées automatiquement dans `alembic/`):
 
 ```bash
@@ -86,10 +86,12 @@ PY
 ```
 
 ### 4) Vérifications & post-migration
+
 - Les anciens formats de hash (scrypt / pbkdf2 / legacy) sont marqués avec `needs_password_reset = 1` par la migration; à la première connexion réussie l'utilisateur est automatiquement ré-haché en Argon2 et le flag est effacé.
 - Pour forcer une réinitialisation côté utilisateur, utilisez le flux de réinitialisation de mot de passe : `/api/auth/password/request-reset` puis `/api/auth/password/reset`.
 
 ### 5) Tests & validation
+
 - Les tests unitaires et d'intégration couvrent la migration et les nouveaux flux d'auth. Pour exécuter la suite concernée :
 
 ```bash
@@ -98,6 +100,7 @@ pytest -q tests/test_auth_migration.py tests/test_account_lockout.py tests/test_
 ```
 
 ### 6) Sécurité & bonnes pratiques
+
 - Les fichiers secrets locaux (`.secret_key`, `data/.hash_salt`) sont générés automatiquement et **ignorés** par git. Ne les commettez jamais.
 - En production, **ne retournez jamais** les tokens de réinitialisation dans la réponse HTTP : envoyez-les par e-mail via un canal sécurisé (SMTP ou un service d'email). Le dépôt contient l'implémentation de test qui renvoie le token pour faciliter les tests locaux.
 - Pensez à configurer la variable d'environnement `MCPANEL_FORCE_SECURE=1` et à activer HTTPS pour forcer des cookies `Secure`/`Strict`.
@@ -114,14 +117,13 @@ python scripts/remove_users_json.py
 Le script créera un fichier `data/users.json.removed.<timestamp>` et supprimera `data/users.json`.
 
 ### 7) Rollback / sauvegarde
+
 - Le script de migration sauvegarde `data/users.json` en `.bak` avant de modifier (voir `data/users.json.bak`). Conservez la sauvegarde jusqu'à validation complète.
 - Pour revenir en arrière au niveau de schéma : utilisez Alembic (`alembic downgrade <rev>`). Faites une sauvegarde de `data/mcpanel.db` avant toute opération destructrice.
 
 ---
 
 Si vous souhaitez, je peux ajouter un exemple d'envoi d'e-mails (SMTP) pour le flow de reset, ou un script pour lister/débloquer les comptes (admin UI) — dites-moi quelle option vous préférez. ✉️🔧
-
-
 
 ## Fonctionnalités![Python](https://img.shields.io/badge/Python-3.11+-blue)
 
@@ -149,8 +151,6 @@ Si vous souhaitez, je peux ajouter un exemple d'envoi d'e-mails (SMTP) pour le f
 
 ## Prérequis- ✅ Suppression de serveurs
 
-
-
 - Python 3.8+### 📊 Monitoring
 
 - Java 17+ (21 recommandé pour MC 1.20.5+)- 📈 Utilisation CPU et RAM en temps réel (via psutil)
@@ -159,9 +159,7 @@ Si vous souhaitez, je peux ajouter un exemple d'envoi d'e-mails (SMTP) pour le f
 
 ## Installation- 🔄 Rafraîchissement automatique du statut
 
-
-
-```bash### 👥 Gestion des joueurs
+````bash### 👥 Gestion des joueurs
 
 pip install -r requirements.txt- 👤 Liste complète des joueurs connectés
 
@@ -223,9 +221,9 @@ Pour changer le port de l'interface web, modifier la ligne `app.run()` dans `mai
 
 └── servers/          # Données serveurs### Installation des dépendances
 
-```
+````
 
-```powershell
+````powershell
 
 ## API# Installer les packages Python
 
@@ -288,7 +286,7 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
+````
 
 2. Lancer l'application en local :
 
@@ -312,12 +310,14 @@ pyinstaller --onefile --name mcpanel \
   --add-data "locales:locales" \
   main.py
 ```
+
 ```bash
 # Exécutable généré dans ./dist/mcpanel
 ./dist/mcpanel
 ```
 
 Remarques :
+
 - Selon la plateforme (Linux/Mac/Windows) les chemins `--add-data` sont sensibles et peuvent nécessiter un format différent (utiliser `;` sur Windows).
 - Vérifiez les logs et créez un script wrapper si nécessaire pour définir des variables d'environnement.
 
@@ -456,6 +456,7 @@ Si Java n'est pas dans le PATH :
 ## 🛡️ Sécurité
 
 ### Protections intégrées
+
 - ✅ Validation des noms de serveurs (anti-injection)
 - ✅ Protection contre path traversal
 - ✅ Validation des UUIDs joueurs
@@ -464,6 +465,7 @@ Si Java n'est pas dans le PATH :
 - ✅ Timeouts sur les requêtes HTTP
 
 ### Recommandations
+
 - 🔒 Ne pas exposer le port 5000 sur Internet (usage local uniquement)
 - 🔐 Ajouter une authentification si usage en réseau
 - 💾 Faire des sauvegardes régulières
@@ -471,6 +473,7 @@ Si Java n'est pas dans le PATH :
 ## 🐛 Dépannage
 
 ### Erreur "Java non trouvé"
+
 ```powershell
 # Vérifier Java
 java -version
@@ -479,11 +482,13 @@ java -version
 ```
 
 ### Le serveur ne démarre pas
+
 - Vérifier que le port 25565 n'est pas déjà utilisé
 - Augmenter la RAM allouée
 - Vérifier les logs dans la console
 
 ### Plugin ne fonctionne pas
+
 - Redémarrer le serveur après installation
 - Vérifier la compatibilité du plugin avec la version Minecraft
 
@@ -522,6 +527,7 @@ Ce projet est libre d'utilisation pour un usage personnel et éducatif.
 Les suggestions et améliorations sont les bienvenues !
 
 ### Idées d'améliorations futures
+
 - 🔐 Système d'authentification
 - 🌐 Support multi-langues
 - 📱 Interface mobile optimisée
@@ -534,6 +540,7 @@ Les suggestions et améliorations sont les bienvenues !
 ## 📞 Support
 
 En cas de problème :
+
 1. Vérifier les logs dans la console
 2. Vérifier que Python 3.11+ est installé
 3. Vérifier que Java 17+ est installé

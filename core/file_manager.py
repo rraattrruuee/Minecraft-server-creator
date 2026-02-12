@@ -18,9 +18,17 @@ class FileManager:
         if not server_name or ".." in server_name or "/" in server_name:
             raise ValueError("Invalid server name")
             
-        server_root = os.path.join(self.base_dir, server_name)
+        # Modif: Le root pour l'utilisateur est maintenant le dossier "data" uniquement.
+        server_root = os.path.join(self.base_dir, server_name, "data")
+        
+        # Si le dossier data n'existe pas, pointer sur le root (cas legacy ou erreur)
         if not os.path.exists(server_root):
-            raise FileNotFoundError("Server not found")
+             parent_root = os.path.join(self.base_dir, server_name)
+             if os.path.exists(parent_root):
+                 # Créer le dossier data s'il manque
+                 os.makedirs(server_root, exist_ok=True)
+             else:
+                 raise FileNotFoundError("Server not found")
         
         if rel_path.startswith("/"):
             rel_path = rel_path[1:]
@@ -59,9 +67,16 @@ class FileManager:
             print(f"[FileManager] List Error: {e}")
             return []
 
+    def _check_sensitive_block(self, full_path):
+        """Bloque l'accès aux fichiers critiques"""
+        filename = os.path.basename(full_path)
+        if filename in ["docker-compose.yml", "manager_config.json", ".env", "passwd", "shadow"]:
+            raise PermissionError("Accès interdit à ce fichier critique.")
+
     def read_file(self, server_name, path):
         try:
             full_path = self._get_secure_path(server_name, path)
+            self._check_sensitive_block(full_path)
             
             if not os.path.isfile(full_path):
                 raise FileNotFoundError("File not found")
@@ -77,6 +92,7 @@ class FileManager:
     def save_file(self, server_name, path, content):
         try:
             full_path = self._get_secure_path(server_name, path)
+            self._check_sensitive_block(full_path)
             
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -100,6 +116,7 @@ class FileManager:
     def delete_item(self, server_name, path):
         try:
             full_path = self._get_secure_path(server_name, path)
+            self._check_sensitive_block(full_path)
             
             if os.path.isdir(full_path):
                 shutil.rmtree(full_path)
@@ -112,10 +129,12 @@ class FileManager:
     def rename_item(self, server_name, path, new_name):
         try:
             old_path = self._get_secure_path(server_name, path)
+            self._check_sensitive_block(old_path)
+
             parent_dir = os.path.dirname(old_path)
-            
             new_name = secure_filename(new_name)
             new_path = os.path.join(parent_dir, new_name)
+            self._check_sensitive_block(new_path)
             
             if not os.path.abspath(new_path).startswith(os.path.join(self.base_dir, server_name)):
                 raise ValueError("Destination out of bounds")
