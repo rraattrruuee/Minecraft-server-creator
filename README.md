@@ -152,6 +152,24 @@ Si vous souhaitez, je peux ajouter un exemple d'envoi d'e-mails (SMTP) pour le f
 ## Prérequis- ✅ Suppression de serveurs
 
 - Python 3.8+### 📊 Monitoring
+### Prérequis système (développement)
+
+Sur certaines distributions Linux, l'installation de dépendances Python nécessite des paquets système (compilateurs/headers). Si `pip install -r requirements.txt` échoue avec des erreurs de build (p.ex. PyYAML), installez :
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential python3-dev libyaml-dev
+```
+
+Ensuite réessayez :
+
+```bash
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+Ces étapes corrigent la majorité des erreurs de compilation locales.
+
 
 - Java 17+ (21 recommandé pour MC 1.20.5+)- 📈 Utilisation CPU et RAM en temps réel (via psutil)
 

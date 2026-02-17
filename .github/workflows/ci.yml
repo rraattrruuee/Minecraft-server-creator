@@ -28,7 +28,8 @@ jobs:
       - name: Install Python deps (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools
+          python -m pip install wheel
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest coverage pyinstaller
 
@@ -36,7 +37,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools
+          python -m pip install wheel
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
           pip install pytest coverage pyinstaller
 
@@ -44,7 +46,8 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y rsync wget fakeroot dpkg-dev libfuse2
+          # tools required for packaging and for building some Python wheels (PyYAML, etc.)
+          sudo apt-get install -y rsync wget fakeroot dpkg-dev libfuse2 build-essential libyaml-dev python3-dev
 
       - name: Run tests
         env:
