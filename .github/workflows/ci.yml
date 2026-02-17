@@ -11,9 +11,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # Use Python 3.12 in CI because some binary wheels (p.ex. PyYAML)
+      # are not yet available for newer Python interpreters on the runner;
+      # keeping 3.12 ensures deterministic installs and successful SBOM generation.
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.13"]
+        python-version: ["3.12"]
 
     steps:
       - name: Checkout
