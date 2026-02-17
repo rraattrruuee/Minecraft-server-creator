@@ -215,6 +215,12 @@ class AuthManager:
                 if not verified:
                     self._log_audit(username, "LOGIN_FAILED", "bad password")
                     self._record_failed_login(username)
+                    # If lock was just applied, return locked message for this attempt
+                    lock_until_now = self._get_lock_until(username)
+                    if lock_until_now and datetime.now() < lock_until_now:
+                        remaining = int((lock_until_now - datetime.now()).total_seconds())
+                        mins = max(1, remaining // 60)
+                        return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                     return None, "Identifiants invalides."
 
                 # Enforce MFA for Admin
@@ -237,6 +243,11 @@ class AuthManager:
                         if not totp.verify(otp, valid_window=1):
                             self._log_audit(username, "LOGIN_FAILED", "bad 2fa code")
                             self._record_failed_login(username)
+                            lock_until_now = self._get_lock_until(username)
+                            if lock_until_now and datetime.now() < lock_until_now:
+                                remaining = int((lock_until_now - datetime.now()).total_seconds())
+                                mins = max(1, remaining // 60)
+                                return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                             return None, "Code 2FA invalide"
                     except:
                         return None, "Code 2FA invalide"
@@ -280,6 +291,11 @@ class AuthManager:
             if username not in users:
                 check_password_hash('pbkdf2:sha256:1000$dummy$dummy', 'dummy')
                 self._record_failed_login(username)
+                lock_until_now = self._get_lock_until(username)
+                if lock_until_now and datetime.now() < lock_until_now:
+                    remaining = int((lock_until_now - datetime.now()).total_seconds())
+                    mins = max(1, remaining // 60)
+                    return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                 return None, "Identifiants invalides."
 
             user = users[username]
@@ -288,6 +304,11 @@ class AuthManager:
                 if not check_password_hash(stored_hash, password):
                     self._log_audit(username, "LOGIN_FAILED", "bad password")
                     self._record_failed_login(username)
+                    lock_until_now = self._get_lock_until(username)
+                    if lock_until_now and datetime.now() < lock_until_now:
+                        remaining = int((lock_until_now - datetime.now()).total_seconds())
+                        mins = max(1, remaining // 60)
+                        return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                     return None, "Identifiants invalides."
                 # migrate into DB
                 try:
@@ -311,6 +332,11 @@ class AuthManager:
                 else:
                     self._log_audit(username, "LOGIN_FAILED", "bad password (legacy)")
                     self._record_failed_login(username)
+                    lock_until_now = self._get_lock_until(username)
+                    if lock_until_now and datetime.now() < lock_until_now:
+                        remaining = int((lock_until_now - datetime.now()).total_seconds())
+                        mins = max(1, remaining // 60)
+                        return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                     return None, "Identifiants invalides."
 
             # If migrated, return user data

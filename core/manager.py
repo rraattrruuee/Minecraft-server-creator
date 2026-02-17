@@ -943,6 +943,22 @@ class ServerManager:
         os.makedirs(os.path.join(data_dir, "plugins"), exist_ok=True)
         os.makedirs(os.path.join(data_dir, "mods"), exist_ok=True)
 
+        # For modded server types, attempt to download/migrate a server.jar into the folder
+        # (tests monkeypatch download_forge_server / download_fabric_server to simulate this).
+        try:
+            if server_type == 'forge' and forge_version:
+                try:
+                    self.download_forge_server(path, version, forge_version)
+                except Exception as e:
+                    print(f"[WARN] download_forge_server failed: {e}")
+            elif server_type == 'fabric' and loader_version:
+                try:
+                    self.download_fabric_server(path, version, loader_version)
+                except Exception as e:
+                    print(f"[WARN] download_fabric_server failed: {e}")
+        except Exception:
+            pass
+
         print(f"[INFO] Configuration Docker pour {server_type.title()} {version}...")
         
         # Allocation port

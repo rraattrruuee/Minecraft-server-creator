@@ -288,3 +288,4 @@ installers/*.exe
 *.exe
 *.zip
 
+/core/__pycache__
