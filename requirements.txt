@@ -12,7 +12,7 @@ pyotp>=2.8.0
 paramiko>=3.3.1
 # pinned to generate reproducible SBOM entries and avoid CycloneDX warnings
 boto3==1.42.50
-PyYAML==6.0
+PyYAML==6.0.3
 Pillow==12.1.1
 flask-limiter==3.0.0
 prometheus-client==0.16.0

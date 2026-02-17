@@ -28,12 +28,20 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
+      - name: Install packaging tools (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          # tools required for packaging and for building some Python wheels (PyYAML, etc.)
+          sudo apt-get install -y rsync wget fakeroot dpkg-dev libfuse2 build-essential libyaml-dev python3-dev
+
       - name: Install Python deps (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           python -m pip install --upgrade pip setuptools
           python -m pip install wheel
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # prefer binary wheels (avoid building extensions on the runner)
+          if [ -f requirements.txt ]; then pip install --prefer-binary -r requirements.txt; fi
           pip install pytest coverage pyinstaller
 
       - name: Install Python deps (Windows)
@@ -45,12 +53,7 @@ jobs:
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
           pip install pytest coverage pyinstaller
 
-      - name: Install packaging tools (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          # tools required for packaging and for building some Python wheels (PyYAML, etc.)
-          sudo apt-get install -y rsync wget fakeroot dpkg-dev libfuse2 build-essential libyaml-dev python3-dev
+      # (packaging tools moved earlier so system headers are available before pip builds)
 
       - name: Run tests
         env:
