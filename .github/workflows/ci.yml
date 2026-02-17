@@ -191,6 +191,11 @@ jobs:
           vuln-type: "os,library"
           severity: "CRITICAL,HIGH"
 
+      - name: Prepare SBOM output directory
+        run: |
+          mkdir -p dist
+          chmod 0777 dist
+
       - name: Generate SBOM (CycloneDX)
         uses: CycloneDX/gh-python-generate-sbom@v1
         with:

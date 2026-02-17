@@ -10,8 +10,9 @@ alembic>=1.11
 argon2-cffi>=21.3.0
 pyotp>=2.8.0
 paramiko>=3.3.1
-boto3
-PyYAML
-Pillow
-flask-limiter
-prometheus-client
+# pinned to generate reproducible SBOM entries and avoid CycloneDX warnings
+boto3==1.26.173
+PyYAML==6.0
+Pillow==9.5.0
+flask-limiter==2.0.6
+prometheus-client==0.16.0

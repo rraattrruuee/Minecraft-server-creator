@@ -70,6 +70,7 @@ from datetime import datetime
 import psutil
 import requests
 from core.webhooks import WebhookManager
+import uuid
 
 class ServerManager:
     def __init__(self, base_dir="servers"):
@@ -919,13 +920,24 @@ class ServerManager:
         name = self._validate_name(name)
         path = os.path.join(server_base, name)
         
+        # If path exists, only treat it as a conflicting server name when it
+        # already contains server markers (manager_config.json / docker-compose.yml / server.jar).
         if os.path.exists(path):
-            raise Exception("Ce nom existe déjà")
-        
-        # Structure de dossiers
-        os.makedirs(path)
+            is_server = (
+                os.path.exists(os.path.join(path, "manager_config.json")) or
+                os.path.exists(os.path.join(path, "docker-compose.yml")) or
+                os.path.exists(os.path.join(path, "server.jar"))
+            )
+            if is_server:
+                raise Exception("Ce nom existe déjà")
+            # otherwise allow creation to proceed in the existing (possibly stale) directory
+        else:
+            # create server directory when it does not exist
+            os.makedirs(path, exist_ok=True)
+
+        # Structure de dossiers (data dir may already exist when reusing a stale folder)
         data_dir = os.path.join(path, "data")
-        os.makedirs(data_dir)
+        os.makedirs(data_dir, exist_ok=True)
         
         # Création des dossiers mods/plugins pour que l'utilisateur puisse les voir vide
         os.makedirs(os.path.join(data_dir, "plugins"), exist_ok=True)
