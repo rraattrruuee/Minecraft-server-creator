@@ -10,6 +10,7 @@ import tarfile
 import yaml
 from typing import List, Dict, Any
 from datetime import datetime
+import zipfile
 from werkzeug.utils import secure_filename
 
 # Templates de serveurs pré-configurés
@@ -807,56 +808,165 @@ class ServerManager:
         Retourne 'paper' par défaut si impossible à déterminer.
         """
         path = self._get_server_path(name)
+        # If a docker-compose.yml exists and contains explicit metadata, prefer it.
+        try:
+            compose_meta = self.get_compose_metadata(name)
+            if compose_meta:
+                st = compose_meta.get('server_type') or compose_meta.get('type')
+                if st:
+                    return st.lower()
+        except Exception:
+            # If parsing fails, continue with filesystem-based heuristics below
+            pass
         
-        # 1. Vérifier l'existence du dossier mods vs plugins
-        has_mods = os.path.exists(os.path.join(path, "mods"))
-        has_plugins = os.path.exists(os.path.join(path, "plugins"))
-        
-        # 2. Chercher des fichiers spécifiques
+        # 1. Vérifier les dossiers mods/plugins
+        mods_dir = os.path.join(path, "mods")
+        plugins_dir = os.path.join(path, "plugins")
+        has_mods = os.path.isdir(mods_dir)
+        has_plugins = os.path.isdir(plugins_dir)
+
+        # 2. Lister les fichiers racine (pour détection explicite des jars serveur)
         files = os.listdir(path) if os.path.exists(path) else []
         files_lower = [f.lower() for f in files]
-        
-        # Forge: présence de forge-*.jar, libraries/net/minecraftforge, ou fichiers run.bat/run.sh spécifiques
+
+        # Helper: inspecte un .jar (zip) pour un fichier interne
+        def jar_has_internal(jar_path, internal_name: str) -> bool:
+            try:
+                with zipfile.ZipFile(jar_path, 'r') as z:
+                    return any(x.lower().endswith(internal_name) for x in z.namelist())
+            except Exception:
+                return False
+
+        # 3. Détections explicites (prioritaires)
+        # Forge / NeoForge
         if any("forge" in f and f.endswith(".jar") for f in files_lower):
             return "forge"
         if os.path.exists(os.path.join(path, "libraries", "net", "minecraftforge")):
             return "forge"
-        
-        # NeoForge: présence de neoforge-*.jar ou libraries/net/neoforged
         if any("neoforge" in f and f.endswith(".jar") for f in files_lower):
             return "neoforge"
         if os.path.exists(os.path.join(path, "libraries", "net", "neoforged")):
             return "neoforge"
-        
-        # Fabric: présence de fabric-server-*.jar, .fabric dans le dossier, ou fabric.mod.json dans les libs
-        if any("fabric" in f and f.endswith(".jar") for f in files_lower):
+
+        # Fabric / Quilt (fichiers de lancement ou indicateurs)
+        if any(("fabric" in f or "fabric-server-launch" in f) and f.endswith(".jar") for f in files_lower):
             return "fabric"
         if os.path.exists(os.path.join(path, ".fabric")):
             return "fabric"
-        
-        # Quilt: présence de quilt-*.jar ou .quilt
-        if any("quilt" in f and f.endswith(".jar") for f in files_lower):
+        if any("quilt" in f and f.endswith(".jar") for f in files_lower) or os.path.exists(os.path.join(path, ".quilt")):
             return "quilt"
-        if os.path.exists(os.path.join(path, ".quilt")):
-            return "quilt"
-        
-        # 3. Analyser le contenu des mods s'il y en a
-        if has_mods and os.path.exists(os.path.join(path, "mods")):
-            mods_list = os.listdir(os.path.join(path, "mods"))
-            if len(mods_list) > 0:
-                # Si mods présents mais pas de détection Forge/NeoForge, c'est probablement Fabric
-                return "fabric"
-        
-        # 4. Paper / Spigot / Bukkit: présence de plugins ou paper-*.jar, spigot-*.jar
-        if any("paper" in f and f.endswith(".jar") for f in files_lower):
-            return "paper"
-        if any("spigot" in f and f.endswith(".jar") for f in files_lower):
-            return "paper"  # Spigot = compatible Paper
-        if has_plugins and not has_mods:
-            return "paper"
-        
-        # Default
-        return "paper"
+
+        # 4. Analyser le dossier mods (si présent) pour marquages internes
+        if has_mods:
+            try:
+                for fn in os.listdir(mods_dir):
+                    if not fn.lower().endswith('.jar'):
+                        continue
+                    jar_path = os.path.join(mods_dir, fn)
+                    # Fabric mod marker
+                    if jar_has_internal(jar_path, 'fabric.mod.json'):
+                        return 'fabric'
+                    # Quilt mod marker
+                    if jar_has_internal(jar_path, 'quilt.mod.json'):
+                        return 'quilt'
+                    # Fallback par nom de fichier
+                    if 'fabric' in fn.lower():
+                        return 'fabric'
+                    if 'quilt' in fn.lower():
+                        return 'quilt'
+                    if 'forge' in fn.lower():
+                        return 'forge'
+                # Si des fichiers mods existent sans marqueurs explicites, on considère moddé (fabric par défaut)
+                mods_list = [f for f in os.listdir(mods_dir) if f.strip()]
+                if len(mods_list) > 0:
+                    # Si le dossier plugins contient aussi des jars mais que les mods n'ont pas de marqueurs,
+                    # on préfère `paper` (plugins) uniquement si aucun marqueur moddé n'a été trouvé.
+                    if has_plugins:
+                        # vérifier s'il y a réellement des plugins
+                        plugin_jars = [p for p in os.listdir(plugins_dir) if p.lower().endswith('.jar')]
+                        if plugin_jars:
+                            return 'paper'
+                    return 'fabric'
+            except Exception:
+                # en cas d'erreur d'accès, on continue l'analyse
+                pass
+
+        # 5. Plugins => Paper/Spigot/Bukkit
+        if has_plugins:
+            try:
+                plugin_jars = [p for p in os.listdir(plugins_dir) if p.lower().endswith('.jar')]
+                if plugin_jars:
+                    return 'paper'
+            except Exception:
+                pass
+
+        # 6. Détection par noms racines (paper/spigot)
+        if any('paper' in f and f.endswith('.jar') for f in files_lower):
+            return 'paper'
+        if any('spigot' in f and f.endswith('.jar') for f in files_lower):
+            return 'paper'
+
+        # Default conservateur
+        return 'paper'
+
+    def get_compose_metadata(self, name) -> dict:
+        """Lit `docker-compose.yml` du serveur et retourne les métadonnées connues.
+
+        Recherche dans `services.*.environment` les variables:
+        - VERSION -> version Minecraft
+        - TYPE -> paper|forge|fabric|neoforge|quilt
+        - FABRIC_LOADER_VERSION, FORGE_VERSION
+
+        Retourne un dict vide si le fichier est absent ou n'apporte aucune info.
+        """
+        path = self._get_server_path(name)
+        compose_path = os.path.join(path, 'docker-compose.yml')
+        if not os.path.exists(compose_path):
+            return {}
+
+        try:
+            with open(compose_path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return {}
+
+        if not isinstance(data, dict):
+            return {}
+
+        services = data.get('services') or {}
+        # iterate services to find env keys we expect (common name used is 'mc')
+        for svc_name, svc in services.items():
+            env = svc.get('environment') if isinstance(svc, dict) else None
+            if not env:
+                continue
+
+            result = {}
+            # environment can be list of 'KEY=VAL' or mapping
+            if isinstance(env, dict):
+                keys = {k.upper(): v for k, v in env.items()}
+            else:
+                keys = {}
+                for item in env:
+                    try:
+                        k, v = item.split('=', 1)
+                        keys[k.upper()] = v
+                    except Exception:
+                        continue
+
+            if 'VERSION' in keys:
+                result['version'] = keys['VERSION']
+            if 'TYPE' in keys:
+                result['server_type'] = keys['TYPE'].lower()
+            if 'FABRIC_LOADER_VERSION' in keys:
+                result['loader_version'] = keys['FABRIC_LOADER_VERSION']
+            if 'FORGE_VERSION' in keys:
+                result['forge_version'] = keys['FORGE_VERSION']
+
+            # If we found any metadata, return it
+            if result:
+                return result
+
+        return {}
 
     def save_server_config(self, name, config):
         """Sauvegarde la configuration du serveur"""
@@ -1126,7 +1236,20 @@ class ServerManager:
                 return
             except subprocess.CalledProcessError as e:
                 err = e.stderr.decode() if e.stderr else str(e)
-                raise Exception(f"Erreur Docker: {err}")
+                # Fallback: try legacy `docker-compose` if `docker compose` fails
+                try:
+                    subprocess.run(
+                        ["docker-compose", "up", "-d"],
+                        cwd=path,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    print(f"[INFO] Conteneur démarré pour {name} (fallback docker-compose)")
+                    return
+                except subprocess.CalledProcessError:
+                    # As last resort, surface the original error
+                    raise Exception(f"Erreur Docker: {err}")
 
         # 2. Mode Legacy (Processus Local)
         if self.is_running(name):
