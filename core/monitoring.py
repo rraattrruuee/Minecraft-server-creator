@@ -8,8 +8,16 @@ from datetime import datetime
 
 # Import notification system
 try:
-    from core.notifications import notify
-except:
+    import logging
+    logger = logging.getLogger(__name__)
+    from core.notifications import NotificationManager
+    notif_manager = NotificationManager()
+    def notify(title, message, event_type="alert"):
+        notif_manager.send_notification(title, message, event_type)
+except Exception as e:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error(f"Failed to initialize notification system in monitoring: {e}")
     def notify(*args, **kwargs): pass
 
 
@@ -33,7 +41,7 @@ class MetricsCollector:
             pass
         self._thread = threading.Thread(target=self._collect_loop, daemon=True)
         self._thread.start()
-        print("[METRICS] Collecteur de métriques démarré")
+        logger.info("[METRICS] Collecteur de métriques démarré")
     
     def stop(self):
         """Arrête la collecte"""
@@ -47,7 +55,7 @@ class MetricsCollector:
             try:
                 self._collect_system()
             except Exception as e:
-                print(f"[METRICS] Erreur collecte: {e}")
+                logger.info(f"[METRICS] Erreur collecte: {e}")
             time.sleep(1)  # Collecte toutes les secondes
     
     def _collect_system(self):
@@ -205,7 +213,7 @@ class ServerMonitor:
         self._running = True
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._thread.start()
-        print("[MONITOR] Surveillance des serveurs démarrée")
+        logger.info("[MONITOR] Surveillance des serveurs démarrée")
     
     def stop(self):
         self._running = False
@@ -219,7 +227,7 @@ class ServerMonitor:
                 self._check_servers()
                 self._check_system_health()
             except Exception as e:
-                print(f"[MONITOR] Erreur: {e}")
+                logger.info(f"[MONITOR] Erreur: {e}")
             time.sleep(30)  # Check toutes les 30 secondes (rapide)
     
     def _check_servers(self):
@@ -245,12 +253,12 @@ class ServerMonitor:
                             if now - last_crash > self.restart_cooldown:
                                 config["count"] += 1
                                 config["last_crash"] = now
-                                print(f"[MONITOR] Auto-restart {name} (attempt {config['count']})")
+                                logger.info(f"[MONITOR] Auto-restart {name} (attempt {config['count']})")
                                 try:
                                     self.srv_mgr.start(name)
                                     self._add_alert("restart", name, f"Auto-restart {name} (#{config['count']})")
                                 except Exception as e:
-                                    print(f"[MONITOR] Failed to restart {name}: {e}")
+                                    logger.info(f"[MONITOR] Failed to restart {name}: {e}")
                         else:
                             self._add_alert("crash", name, f"{name}: max restarts reached, manual intervention needed")
             except:
@@ -279,7 +287,7 @@ class ServerMonitor:
             "read": False
         }
         self.alerts.appendleft(alert)
-        print(f"[ALERT] [{alert_type.upper()}] {message}")
+        logger.warning(f"[ALERT] [{alert_type.upper()}] {message}")
         
         # Send to Discord/Email via notification system
         severity = "error" if alert_type in ["crash", "disk"] else "warning"

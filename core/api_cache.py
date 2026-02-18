@@ -28,16 +28,16 @@ class APICache:
             # Vérifier âge
             cached_time = datetime.fromisoformat(cached['timestamp'])
             if datetime.now() - cached_time < timedelta(hours=max_age_hours):
-                print(f"[CACHE] Hit: {key} (age: {(datetime.now() - cached_time).seconds}s)")
+                logger.debug(f"[CACHE] Hit: {key} (age: {(datetime.now() - cached_time).seconds}s)")
                 return cached['data']
             else:
-                print(f"[CACHE] Expired: {key}")
+                logger.debug(f"[CACHE] Expired: {key}")
         except Exception as e:
-            print(f"[CACHE] Error reading {key}: {e}")
+            logger.warning(f"[CACHE] Error reading {key}: {e}")
         
         return None
     
-    def set(self, key: str, data: Any):
+    def set(self, key: str, data: Any, max_age_hours: Optional[int] = None):
         """Sauvegarde dans cache"""
         cache_file = os.path.join(self.cache_dir, f"{key}.json")
         
@@ -47,10 +47,37 @@ class APICache:
                     'timestamp': datetime.now().isoformat(),
                     'data': data
                 }, f, indent=2)
-            print(f"[CACHE] Saved: {key}")
+            logger.debug(f"[CACHE] Saved: {key}")
         except Exception as e:
-            print(f"[WARN] Erreur cache {key}: {e}")
+            logger.warning(f"[WARN] Erreur cache {key}: {e}")
 
+    def cleanup(self, max_age_days: int = 7):
+        """Supprime les entrées de cache plus vieilles que max_age_days."""
+        try:
+            now = datetime.now()
+            count = 0
+            for filename in os.listdir(self.cache_dir):
+                if filename.endswith(".json"):
+                    filepath = os.path.join(self.cache_dir, filename)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            cached = json.load(f)
+                        cached_time = datetime.fromisoformat(cached['timestamp'])
+                        if now - cached_time > timedelta(days=max_age_days):
+                            os.remove(filepath)
+                            count += 1
+                    except Exception:
+                        # Si le fichier est corrompu, on le supprime
+                        os.remove(filepath)
+                        count += 1
+            if count > 0:
+                logger.info(f"[CACHE] Nettoyage : {count} fichiers supprimés")
+        except Exception as e:
+            logger.error(f"[CACHE] Erreur lors du nettoyage : {e}")
+
+
+import logging
+logger = logging.getLogger(__name__)
 
 # Instance globale
 cache = APICache()

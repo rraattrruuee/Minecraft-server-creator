@@ -1,6 +1,9 @@
 ﻿import json
 import os
+import logging
 from flask import request, session
+
+logger = logging.getLogger(__name__)
 
 
 class I18n:
@@ -512,7 +515,7 @@ class I18n:
                 with open(file_path, "r", encoding="utf-8") as f:
                     self.translations[lang] = json.load(f)
             except Exception as e:
-                print(f"[I18N] Erreur chargement {lang}: {e}")
+                logger.error(f"Erreur chargement {lang}: {e}")
                 self.translations[lang] = {}
     
     def get_language(self):

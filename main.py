@@ -28,10 +28,13 @@ from core.tunnel import TunnelManager, get_tunnel_manager
 from core.docker_installer import is_docker_installed, install_docker_sync, install_docker_async
 from core.rate_limiter import limiter
 from core.quota import QuotaManager
+from core.governance import GovernanceManager, enforce_governance
 from core.marketplace import MarketplaceManager
 from core.billing import BillingManager
 from core.webhooks import WebhookManager
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from app.swarm_routes import swarm_bp
+from app.docker_routes import app_docker
 
 try:
     from PIL import Image
@@ -45,6 +48,17 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
     except AttributeError:
         pass  # Python < 3.7
+
+# Logging Configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join("data", "mcpanel.log"), encoding='utf-8')
+    ]
+)
+logger = logging.getLogger("MCPanel")
 
 app = Flask(__name__, template_folder="app/templates", static_folder="app/static")
 limiter.init_app(app)
@@ -92,12 +106,37 @@ def api_market_search():
     results = market_mgr.search_plugins(query)
     return jsonify({"status": "success", "results": results})
 
+@app.route('/api/market/install', methods=['POST'])
+@login_required
+def api_market_install():
+    data = request.json or {}
+    project_id = data.get('project_id')
+    server_name = data.get('server_name')
+    
+    if not project_id or not server_name:
+        return jsonify({"status": "error", "message": "project_id and server_name required"}), 400
+        
+    # Vérifier les droits sur le serveur
+    user = session["user"]["username"]
+    role = session["user"].get("role")
+    
+    servers = srv_mgr.list_servers(user if role != "admin" else "admin")
+    if server_name not in servers:
+        return jsonify({"status": "error", "message": "Accès refusé au serveur"}), 403
+        
+    server_path = srv_mgr._get_server_path(server_name)
+    success, msg = market_mgr.install_plugin(server_path, project_id)
+    
+    if success:
+        auth_mgr._log_audit(user, "MARKET_INSTALL", f"{project_id} -> {server_name}")
+        return jsonify({"status": "success", "message": msg})
+    else:
+        return jsonify({"status": "error", "message": msg}), 500
+
 # Swarm Integration
-from app.swarm_routes import swarm_bp
 app.register_blueprint(swarm_bp)
 
 # Docker Dashboard Integration
-from app.docker_routes import app_docker
 app.register_blueprint(app_docker)
 
 app.config['JSON_AS_ASCII'] = False
@@ -133,8 +172,8 @@ log.setLevel(logging.ERROR)
 # Ensure DB is initialized early
 try:
     init_db()
-except Exception:
-    pass
+except Exception as e:
+    logger.error(f"Critical error initializing Database: {e}")
 
 # ===================== SECURITY MIDDLEWARE =====================
 @app.before_request
@@ -196,7 +235,7 @@ def csrf_protect():
         # Amélioration Sécurité 11: Si pas de token en session, en générer un et rejeter
         if not token:
             generate_csrf_token()  # Générer pour la prochaine fois
-            print(f"[CSRF] REJECTED on {request.path} - no session token")
+            logger.warning(f"[CSRF] REJECTED on {request.path} - no session token")
             return jsonify({
                 "status": "error", 
                 "message": "Session expirée, veuillez rafraîchir la page",
@@ -205,7 +244,7 @@ def csrf_protect():
             }), 403
 
         if token != header_token:
-            print(f"[CSRF] REJECTED on {request.path} - token mismatch")
+            logger.warning(f"[CSRF] REJECTED on {request.path} - token mismatch")
             return jsonify({
                 "status": "error", 
                 "message": "CSRF Token invalide",
@@ -285,7 +324,7 @@ metrics_collector.start()
 
 def collect_server_metrics_task():
     """Tâche de fond pour collecter les métriques des serveurs actifs"""
-    print("[METRICS] Tâche de collecte des métriques serveurs démarrée")
+    logger.info("[METRICS] Tâche de collecte des métriques serveurs démarrée")
     while True:
         try:
             # On itère sur les serveurs actifs
@@ -302,35 +341,35 @@ def collect_server_metrics_task():
                 except Exception as e:
                     pass
         except Exception as e:
-            print(f"[METRICS] Erreur boucle collecte: {e}")
+            logger.error(f"[METRICS] Erreur boucle collecte: {e}")
         time.sleep(15)  # Collecte toutes les 15 secondes
 
 # Initialiser le gestionnaire de tunnel (remplace Playit.gg)
 try:
     tunnel_mgr = get_tunnel_manager(os.path.join(os.path.dirname(__file__), "servers"))
-    print("[INFO] Tunnel manager initialisé")
+    logger.info("[INFO] Tunnel manager initialisé")
 except Exception as e:
-    print(f"[WARN] Erreur initialisation tunnel manager: {e}")
+    logger.warning(f"[WARN] Erreur initialisation tunnel manager: {e}")
     tunnel_mgr = None
 
 # Initialiser le gestionnaire de mods
 try:
     from core.mods import ModManager
     mod_mgr = ModManager(os.path.join(os.path.dirname(__file__), "servers"))
-    print("[INFO] Mod manager initialisé")
+    logger.info("[INFO] Mod manager initialisé")
 except Exception as e:
-    print(f"[WARN] Erreur initialisation mod manager: {e}")
+    logger.warning(f"[WARN] Erreur initialisation mod manager: {e}")
     mod_mgr = None
 
 # Job manager (background tasks)
 try:
     job_mgr = get_job_manager()
-    print("[INFO] Job manager initialisé")
+    logger.info("[INFO] Job manager initialisé")
 except Exception as e:
-    print(f"[WARN] Erreur initialisation job manager: {e}")
+    logger.warning(f"[WARN] Erreur initialisation job manager: {e}")
     job_mgr = None
 
-print("[INFO] Demarrage MCPanel...")
+logger.info("[INFO] Demarrage MCPanel...")
 
 def check_java():
     try:
@@ -343,19 +382,20 @@ def check_java():
         if result.returncode == 0:
             # Extraire la version depuis stderr (Java affiche sur stderr)
             version_output = result.stderr.split('\n')[0] if result.stderr else result.stdout.split('\n')[0]
-            print(f"[INFO] Java detecte: {version_output}")
+            logger.info(f"[INFO] Java detecte: {version_output}")
             return True
     except FileNotFoundError:
-        print("[WARN] Java n'est pas installe ou pas dans le PATH")
-        print("[WARN] Telechargez Java 17+ sur https://adoptium.net/")
-        print("[WARN] Les serveurs ne pourront pas demarrer sans Java")
+        logger.warning("[WARN] Java n'est pas installe ou pas dans le PATH")
+        logger.warning("[WARN] Telechargez Java 17+ sur https://adoptium.net/")
+        logger.warning("[WARN] Les serveurs ne pourront pas demarrer sans Java")
         return False
     except Exception as e:
-        print(f"[WARN] Erreur verification Java: {e}")
+        logger.warning(f"[WARN] Erreur verification Java: {e}")
         return False
 
 # Initialiser les managers
 srv_mgr = ServerManager()
+governance_mgr = GovernanceManager(quota_mgr, srv_mgr)
 billing_mgr.srv_mgr = srv_mgr
 stats_mgr = PlayerStatsManager(srv_mgr.base_dir)
 plugin_mgr = PluginManager(srv_mgr.base_dir)
@@ -385,6 +425,19 @@ def set_maintenance():
         
     auth_mgr._log_audit(session["user"]["username"], "MAINTENANCE", str(enable))
     return jsonify({"status": "success", "maintenance": enable})
+
+@app.route("/api/admin/quotas", methods=["GET", "POST"])
+@admin_required
+def admin_quotas():
+    if request.method == "POST":
+        data = request.json
+        # Only update user role for simplicity in this demo
+        if "user" in data:
+            quota_mgr.quotas["user"] = data["user"]
+            quota_mgr._save_quotas()
+            return jsonify({"status": "success"})
+    
+    return jsonify({"status": "success", "quotas": quota_mgr.quotas})
 
 @app.route("/api/admin/revoke-user", methods=["POST"])
 @admin_required
@@ -653,7 +706,7 @@ def api_login():
     otp = data.get('otp')
     # Diagnostic: call authenticate and log result server-side for debugging
     user, error = auth_mgr.authenticate(username, password, client_ip=ip, otp=otp)
-    print(f"[AUTH DEBUG] authenticate returned user={bool(user)} error={error}")
+    logger.debug(f"[AUTH DEBUG] authenticate returned user={bool(user)} error={error}")
     if user:
         session.clear()
         session.permanent = True
@@ -1423,7 +1476,7 @@ def get_templates():
         templates = srv_mgr.get_server_templates()
         return jsonify({"status": "success", "templates": templates})
     except Exception as e:
-        print(f"[ERROR] Erreur récup templates: {e}")
+        logger.error(f"[ERROR] Erreur récup templates: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1437,25 +1490,31 @@ def create():
         
         name = data.get("name", "").strip()
         
-        # Quota Check
+        # Quota Check (via GovernanceManager)
         user_role = session["user"].get("role", "user")
-        usage = {
-            "servers": len(srv_mgr.list_servers()),
-            "memory_mb": 0 # TODO: Calculate real memory usage from all servers
+        username = session["user"]["username"]
+        
+        requested = {
+            "count": 1,
+            "memory": data.get("ram_max", "2048M"),
+            "cpu": float(data.get("cpu_limit", 1.0) or 1.0)
         }
-        quota_check = quota_mgr.check_resource_availability(user_role, usage, data)
-        if not quota_check["allowed"]:
-             auth_mgr._log_audit(session["user"]["username"], "CREATE_DENIED", quota_check["reason"])
-             return jsonify({"status": "error", "message": quota_check["reason"]}), 403
+        
+        governance_check = governance_mgr.check_action_allowed(username, user_role, requested)
+        if not governance_check["allowed"]:
+             auth_mgr._log_audit(username, "CREATE_DENIED", governance_check["reason"])
+             return jsonify({"status": "error", "message": governance_check["reason"]}), 403
 
         version = data.get("version", "").strip()
         ram_min = data.get("ram_min", "1024M")
         ram_max = data.get("ram_max", "2048M")
+        cpu_limit = data.get("cpu_limit")
         storage_limit = data.get("storage_limit")
         base_path = data.get("base_path", "").strip()
         server_type = data.get("server_type", "paper")
         loader_version = data.get("loader_version")
         forge_version = data.get("forge_version")
+        port = data.get("port")
         
         if not name or not version:
             return jsonify({"status": "error", "message": "Nom et version requis"}), 400
@@ -1466,19 +1525,21 @@ def create():
             version=version,
             ram_min=ram_min,
             ram_max=ram_max,
+            cpu_limit=cpu_limit,
             storage_limit=storage_limit,
             base_path=base_path if base_path else None,
             server_type=server_type,
             loader_version=loader_version,
             forge_version=forge_version,
-            owner=session["user"]["username"]
+            owner=session["user"]["username"],
+            port=port
         )
 
         # Ensure meta is stored reliably even if create_server had internal fallbacks
         try:
             srv_mgr.set_server_meta(name, version=version, server_type=server_type, loader_version=loader_version, forge_version=forge_version)
         except Exception as e:
-            print(f"[WARN] set_server_meta after create failed: {e}")
+            logger.warning(f"[WARN] set_server_meta after create failed: {e}")
 
         # Si des mods sont fournis, tenter de les installer (synchronique)
         mods_payload = data.get("mods", []) if isinstance(data.get("mods", []), list) else []
@@ -1518,7 +1579,7 @@ def create():
 
         return jsonify({"status": "success", "mods": mods_results})
     except Exception as e:
-        print(f"[ERROR] Erreur Creation: {e}")
+        logger.exception("Erreur critique lors de la création")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1538,7 +1599,7 @@ def server_action(name, action):
             "message": action_messages.get(action, "Action effectuée")
         })
     except Exception as e:
-        print(f"[ERROR] Erreur action {action}: {e}")
+        logger.error(f"[ERROR] Erreur action {action}: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1628,7 +1689,23 @@ def command(name):
         auth_mgr._log_audit(session["user"]["username"], "COMMAND", f"{name}: {cmd}")
         return jsonify({"status": "success", "message": "Commande envoyée"})
     except Exception as e:
-        print(f"[ERROR] Erreur commande: {e}")
+        logger.error(f"[ERROR] Erreur commande: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/server/<name>/rename", methods=["POST"])
+@login_required
+def rename_server(name):
+    try:
+        new_name = request.json.get("new_name")
+        if not new_name:
+            return jsonify({"status": "error", "message": "Nouveau nom requis"}), 400
+            
+        srv_mgr.rename_server(name, new_name)
+        auth_mgr._log_audit(session["user"]["username"], "RENAME", f"{name} -> {new_name}")
+        return jsonify({"status": "success", "message": f"Serveur renommé en {new_name}"})
+    except Exception as e:
+        logger.error(f"[ERROR] Erreur renommage: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1640,43 +1717,67 @@ def delete(name):
         auth_mgr._log_audit(session["user"]["username"], "SERVER_DELETE", name)
         return jsonify({"status": "success", "message": "Serveur supprimé avec succès"})
     except Exception as e:
-        print(f"[ERROR] Erreur suppression: {e}")
+        logger.error(f"[ERROR] Erreur suppression: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@app.route("/api/server/<name>/config", methods=["GET", "POST"])
+@app.route("/api/server/<name>/properties", methods=["GET", "POST"])
 @login_required
-def config(name):
+def server_properties_config(name):
     try:
         if request.method == "POST":
             srv_mgr.save_properties(name, request.json)
-            return jsonify({"status": "success", "message": "Configuration sauvegardée"})
+            auth_mgr._log_audit(session["user"]["username"], "PROPERTIES_UPDATE", name)
+            return jsonify({"status": "success", "message": "Propriétés sauvegardées"})
         return jsonify(srv_mgr.get_properties(name))
     except Exception as e:
-        print(f"[ERROR] Erreur config: {e}")
+        logger.error(f"[ERROR] Erreur propriétés: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/server/<name>/docker", methods=["GET", "POST"])
 @login_required
 def docker_config(name):
+    user_role = session.get("user", {}).get("role", "user")
+    quota = quota_mgr.get_quota(user_role)
+    
     try:
         if request.method == "POST":
-            # Security: Ensure user has rights (TODO: checks via set_server_config logic)
+            if not quota.get("allow_resource_edit") and user_role != "admin":
+                return jsonify({"status": "error", "message": "Vous n'avez pas l'autorisation de modifier les ressources."}), 403
+                
             data = request.json
+            
+            # Quota Check (via GovernanceManager)
+            requested = {
+                "count": 1,
+                "memory": data.get("ram_max"),
+                "cpu": float(data.get("cpu_limit", 1.0) or 1.0)
+            }
+            
+            gov_check = governance_mgr.check_action_allowed(session["user"]["username"], user_role, requested, exclude_server=name)
+            if not gov_check["allowed"]:
+                 return jsonify({"status": "error", "message": gov_check["reason"]}), 403
+
             srv_mgr.update_docker_resources(
                 name,
                 port=data.get("port"),
                 ram_max=data.get("ram_max"),
                 ram_min=data.get("ram_min"),
-                cpu_limit=data.get("cpu_limit")
+                cpu_limit=data.get("cpu_limit"),
+                version=data.get("version"),
+                server_type=data.get("server_type")
             )
             auth_mgr._log_audit(session["user"]["username"], "DOCKER_UPDATE", f"{name}: {data}")
             return jsonify({"status": "success", "message": "Configuration Docker mise à jour"})
         
         # GET
         data = srv_mgr.get_docker_resources(name)
-        return jsonify({"status": "success", "config": data})
+        return jsonify({
+            "status": "success", 
+            "config": data,
+            "can_edit": quota.get("allow_resource_edit") or user_role == "admin"
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -1721,7 +1822,7 @@ def server_stats(name):
             "ram_mb": status.get("ram_mb", 0)
         })
     except Exception as e:
-        print(f"[ERROR] Erreur stats: {e}")
+        logger.error(f"[ERROR] Erreur stats: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1764,7 +1865,7 @@ def online_players(name):
                             if match and int(match.group(1)) == 0:
                                 return jsonify({"players": [], "count": 0})
             except Exception as e:
-                print(f"[WARN] RCON indisponible pour {name}: {e}")
+                logger.warning(f"[WARN] RCON indisponible for {name}: {e}")
         
         # Fallback: analyser les logs récents
         log_file = os.path.join(srv_mgr.base_dir, name, "logs", "latest.log")
@@ -1790,12 +1891,12 @@ def online_players(name):
                         if match:
                             online_players.discard(match.group(1))
             except Exception as e:
-                print(f"[WARN] Erreur lecture logs {name}: {e}")
+                logger.warning(f"[WARN] Erreur lecture logs {name}: {e}")
         
         return jsonify({"players": list(online_players), "count": len(online_players)})
         
     except Exception as e:
-        print(f"[ERROR] Erreur online-players: {e}")
+        logger.error(f"[ERROR] Erreur online-players: {e}")
         return jsonify({"players": [], "count": 0, "error": str(e)})
 
 
@@ -1933,7 +2034,7 @@ def upload_plugin(name):
         auth_mgr._log_audit(session["user"]["username"], "PLUGIN_UPLOAD", f"{name}/{filename}")
         return jsonify({"status": "success", "message": f"Plugin {filename} installé"})
     except Exception as e:
-        print(f"[ERROR] Erreur upload plugin: {e}")
+        logger.error(f"[ERROR] Erreur upload plugin: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1970,7 +2071,7 @@ def upload_mod(name):
             # If no explicit modded meta and no mods dir exists, create the mods dir and accept the upload
             try:
                 os.makedirs(mods_dir, exist_ok=True)
-                print(f"[INFO] Created mods directory for server {name} to accept manual mod upload")
+                logger.info(f"[INFO] Created mods directory for server {name} to accept manual mod upload")
                 # Proceed with upload (do not force change of server meta automatically)
             except Exception as e:
                 return jsonify({"status": "error", "message": f"Impossible de préparer le répertoire /mods: {e}"}), 500
@@ -1984,7 +2085,7 @@ def upload_mod(name):
         auth_mgr._log_audit(session["user"]["username"], "MOD_UPLOAD", f"{name}/{filename}")
         return jsonify({"status": "success", "message": f"Mod {filename} uploadé"})
     except Exception as e:
-        print(f"[ERROR] Erreur upload mod: {e}")
+        logger.error(f"[ERROR] Erreur upload mod: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -2006,16 +2107,16 @@ def server_config(name):
                     snippet_in = snippet_in[:200] + '...'
             except Exception:
                 snippet_in = '<unserializable>'
-            print(f"[DEBUG] {datetime.now().isoformat()} API POST /api/server/{name}/config incoming_keys={list(incoming.keys())} merged_keys={list(merged.keys())} incoming_snippet={snippet_in}")
+            logger.debug(f"[DEBUG] {datetime.now().isoformat()} API POST /api/server/{name}/config incoming_keys={list(incoming.keys())} merged_keys={list(merged.keys())} incoming_snippet={snippet_in}")
             return jsonify({"status": "success"})
         except Exception as e:
-            print(f"[ERROR] API /api/server/{name}/config save failed: {e}")
+            logger.error(f"[ERROR] API /api/server/{name}/config save failed: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
     cfg = srv_mgr.get_server_config(name)
     try:
-        print(f"[DEBUG] {datetime.now().isoformat()} API GET /api/server/{name}/config returning_keys={list(cfg.keys())}")
+        logger.debug(f"[DEBUG] {datetime.now().isoformat()} API GET /api/server/{name}/config returning_keys={list(cfg.keys())}")
     except Exception:
-        print(f"[DEBUG] API GET /api/server/{name}/config returning (unserializable)")
+        logger.debug(f"[DEBUG] API GET /api/server/{name}/config returning (unserializable)")
     return jsonify(cfg)
 
 
@@ -2046,7 +2147,7 @@ def backup_server(name):
         auth_mgr._log_audit(session["user"]["username"], "BACKUP_CREATE", name)
         return jsonify({"status": "success", "backup": result, "message": "Sauvegarde créée"})
     except Exception as e:
-        print(f"[ERROR] Erreur backup: {e}")
+        logger.error(f"[ERROR] Erreur backup: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -2067,7 +2168,7 @@ def delete_backup(name, backup_name):
             return jsonify({"status": "success", "message": "Sauvegarde supprimée"})
         return jsonify({"status": "error", "message": "Sauvegarde non trouvée"}), 404
     except Exception as e:
-        print(f"[ERROR] Erreur suppression backup: {e}")
+        logger.error(f"[ERROR] Erreur suppression backup: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -2467,7 +2568,7 @@ def get_server_icon_raw(name):
                 return send_file(default_icon, mimetype='image/svg+xml')
             return "Not found", 404
     except Exception as e:
-        print(f"[ERROR] get_server_icon_raw failed for {name}: {e}")
+        logger.error(f"[ERROR] get_server_icon_raw failed for {name}: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -2480,7 +2581,7 @@ def get_server_icon_status(name):
         exists = os.path.exists(icon_path)
         return jsonify({"status": "success", "exists": exists, "path": icon_path if exists else None})
     except Exception as e:
-        print(f"[ERROR] get_server_icon_status failed for {name}: {e}")
+        logger.error(f"[ERROR] get_server_icon_status failed for {name}: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -2494,22 +2595,6 @@ def search_mods():
     results = srv_mgr.search_mods(query, limit)
     return jsonify({"status": "success", "results": results})
 
-@app.route("/api/server/<name>/mods/install", methods=["POST"])
-@login_required
-def install_mod(name):
-    data = request.json
-    project_id = data.get("project_id")
-    version_id = data.get("version_id") # Optional
-    
-    if not project_id:
-        return jsonify({"status": "error", "message": "Project ID required"}), 400
-        
-    success, msg = srv_mgr.install_mod(name, project_id, version_id)
-    if success:
-        return jsonify({"status": "success", "message": msg})
-    return jsonify({"status": "error", "message": msg}), 500
-
-
 @app.route("/api/server/<name>/optimize", methods=["POST"])
 @login_required
 def optimize_server_flags(name):
@@ -2521,28 +2606,6 @@ def optimize_server_flags(name):
         return jsonify({"status": "error", "message": msg}), 500
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-# ===================== NOTIFICATION CONFIG =====================
-
-@app.route("/api/notifications/config", methods=["GET", "POST"])
-@login_required
-@admin_required
-def notification_config():
-    if request.method == "POST":
-        result = notification_manager.save_config(request.json)
-        auth_mgr._log_audit(session["user"]["username"], "NOTIF_CONFIG_UPDATE", "system")
-        return jsonify(result)
-    return jsonify(notification_manager.get_config())
-
-@app.route("/api/notifications/test/discord", methods=["POST"])
-@login_required
-@admin_required
-def test_discord_webhook():
-    webhook = request.json.get("webhook_url")
-    if not webhook:
-        return jsonify({"success": False, "message": "Webhook URL missing"}), 400
-    return jsonify(notification_manager.test_discord(webhook))
 
 
 # ===================== NOUVELLES FONCTIONNALITES =====================
@@ -3362,7 +3425,7 @@ def server_icon(name):
             return jsonify({"status": "error", "message": "Aucune image envoyée"}), 400
         file = request.files['icon']
         try:
-            print(f"[ICON] Received upload for {name}: filename={file.filename}, content_type={file.content_type}")
+            logger.info(f"[ICON] Received upload for {name}: filename={file.filename}, content_type={file.content_type}")
         except Exception:
             pass
 
@@ -3374,7 +3437,7 @@ def server_icon(name):
         try:
             file.save(icon_path)
         except Exception as e:
-            print(f"[ERROR] saving icon for {name}: {e}")
+            logger.error(f"[ERROR] saving icon for {name}: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
 
         try:
@@ -3387,14 +3450,14 @@ def server_icon(name):
                         im.save(icon_path, format='PNG')
             else:
                 try:
-                    print(f"[ICON] Saved icon for {name}, size={os.path.getsize(icon_path)} bytes")
+                    logger.info(f"[ICON] Saved icon for {name}, size={os.path.getsize(icon_path)} bytes")
                 except Exception:
                     pass
         except Exception as e:
-            print(f"[ERROR] processing icon for {name}: {e}")
+            logger.error(f"[ERROR] processing icon for {name}: {e}")
             return jsonify({"status": "error", "message": "Upload ok but traitement image a échoué: " + str(e)}), 500
 
-        print(f"[ICON] Uploaded icon for server {name} -> {icon_path}")
+        logger.info(f"[ICON] Uploaded icon for server {name} -> {icon_path}")
         return jsonify({"status": "success", "message": "Icône mise à jour", "path": icon_path})
     
     if os.path.exists(icon_path):
@@ -3971,9 +4034,9 @@ if __name__ == "__main__":
                      ha_mgr = HighAvailabilityManager(deployer)
                      ha_thread = threading.Thread(target=ha_mgr.monitor_loop, daemon=True)
                      ha_thread.start()
-                     print("[HA] High Availability Manager started.")
+                     logger.info("[HA] High Availability Manager started.")
     except Exception as e:
-        pass
+        logger.warning(f"[HA] Error starting HA Manager: {e}")
 
     if not os.path.exists("servers"):
         os.makedirs("servers")
@@ -3983,16 +4046,16 @@ if __name__ == "__main__":
     # Vérifier Docker et option d'installation automatique via CLI/ENV
     docker_ok = is_docker_installed()
     if not docker_ok and ("--install-docker" in sys.argv or os.getenv('AUTO_INSTALL_DOCKER', '0') == '1'):
-        print("[INFO] Docker non trouvé — tentative d'installation automatique demandée")
+        logger.info("[INFO] Docker non trouvé — tentative d'installation automatique demandée")
         try:
             res = install_docker_sync()
             docker_ok = bool(res.get('success'))
             if docker_ok:
-                print("[INFO] Docker installé avec succès")
+                logger.info("[INFO] Docker installé avec succès")
             else:
-                print(f"[WARN] Installation Docker échouée — voir log: {res.get('log')}")
+                logger.warning(f"[WARN] Installation Docker échouée — voir log: {res.get('log')}")
         except Exception as e:
-            print(f"[ERROR] Erreur lors de l'installation automatique de Docker: {e}")
+            logger.error(f"[ERROR] Erreur lors de l'installation automatique de Docker: {e}")
 
     import platform
     py_ver = platform.python_version()
@@ -4002,7 +4065,7 @@ if __name__ == "__main__":
     if len(servers_dir) > 50:
         servers_dir = "..." + servers_dir[-47:]
 
-    print(f"""
+    startup_msg = f"""
 ╔════════════════════════════════════════════════════════════════════════╗
 ║                         ⚡ MCPanel Pro ⚡                              ║
 ║                Minecraft Server Manager v0.2.6                         ║
@@ -4011,20 +4074,23 @@ if __name__ == "__main__":
 ║  📁 Serveurs: {servers_dir:<57}║
 ║  🌐 URL: http://127.0.0.1:5000                                         ║
 ╚════════════════════════════════════════════════════════════════════════╝
-    """)
+    """
+    sys.stdout.write(startup_msg + "\n")
+    logger.info("MCPanel started")
     
     try:
         app.run(debug=False, host="0.0.0.0", port=5000, threaded=True)
     except KeyboardInterrupt:
-        print("\n[INFO] Arrêt en cours...")
+        logger.info("[INFO] Arrêt en cours...")
         try:
             for name in list(srv_mgr.procs.keys()):
-                print(f"[INFO] Arrêt du serveur: {name}")
+                logger.info(f"[INFO] Arrêt du serveur: {name}")
                 srv_mgr.stop(name)
             metrics_collector.stop()
             server_monitor.stop()
-        except: pass
-        print("[INFO] MCPanel arrêté proprement.")
+        except Exception: 
+            pass
+        logger.info("[INFO] MCPanel arrêté proprement.")
     except Exception as e:
-        print(f"[FATAL] Erreur critique: {e}")
+        logger.critical(f"[FATAL] Erreur critique: {e}", exc_info=True)
         sys.exit(1)

@@ -1,8 +1,11 @@
 import os
 import shutil
 import time
+import logging
 from datetime import datetime
 from werkzeug.utils import secure_filename
+
+logger = logging.getLogger(__name__)
 
 class FileManager:
     def __init__(self, base_dir="servers"):
@@ -64,7 +67,7 @@ class FileManager:
             items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
             return items
         except Exception as e:
-            print(f"[FileManager] List Error: {e}")
+            logger.error(f"[FileManager] List Error: {e}")
             return []
 
     def _check_sensitive_block(self, full_path):
@@ -169,13 +172,14 @@ class FileManager:
                  raise ValueError("Fichier .png invalide")
                  
         # 4. Block potentially dangerous extensions
-        forbidden = [".exe", ".bat", ".cmd", ".msi", ".vbs", ".php", ".pl"]
+        # .html, .js, .svg can be used for XSS/Phishing if the panel serves them directly
+        forbidden = [".exe", ".bat", ".cmd", ".msi", ".vbs", ".php", ".pl", ".html", ".htm", ".js", ".svg"]
         if any(filename.endswith(ext) for ext in forbidden):
-            raise ValueError(f"Extension interdite: {os.path.splitext(filename)[1]}")
+            raise ValueError(f"Extension interdite (risque de sécurité): {os.path.splitext(filename)[1]}")
             
         return True
 
-    def handle_upload(self, server_name, path, files):
+    def handle_upload(self, server_name, path, files, max_size_mb=100):
         """
         Handles list of FileStorage objects from Flask
         """
@@ -184,18 +188,30 @@ class FileManager:
             if not os.path.isdir(target_dir):
                 raise NotADirectoryError("Target is not a directory")
 
+            max_bytes = max_size_mb * 1024 * 1024
             results = []
             for file in files:
                 if file and file.filename:
-                    # Validate content BEFORE saving
+                    # 1. Check size (approximately via stream if available, but Flask already has MAX_CONTENT_LENGTH)
+                    # However we can be explicit here too.
+                    file.seek(0, os.SEEK_END)
+                    size = file.tell()
+                    file.seek(0)
+                    
+                    if size > max_bytes:
+                        raise ValueError(f"Fichier {file.filename} trop volumineux (max {max_size_mb}MB)")
+
+                    # 2. Validate content BEFORE saving
                     self._validate_file_content(file)
                     
                     filename = secure_filename(file.filename)
                     save_path = os.path.join(target_dir, filename)
                     file.save(save_path)
+                    logger.info(f"Fichier uploadé avec succès: {filename} pour {server_name}")
                     results.append(filename)
             return results
         except Exception as e:
+            logger.error(f"Erreur upload pour {server_name}: {e}")
             raise e
 
     def get_download_path(self, server_name, path):

@@ -11,7 +11,6 @@ services:
       - ./servers:/app/servers
       - ./data:/app/data
       - ./logs:/app/logs
-      # Bind mount Docker socket to allow spawning sibling containers (Minecraft servers / Swarm)
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - MCPANEL_DOCKERIZED=true
@@ -19,7 +18,80 @@ services:
       - FLASK_ENV=production
     networks:
       - mcpanel-net
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monitoring-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - mcpanel-net
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: monitoring-alertmanager
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+    networks:
+      - mcpanel-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monitoring-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana_admin_password
+    volumes:
+      - grafana-data:/var/lib/grafana
+    secrets:
+      - grafana_admin_password
+    networks:
+      - mcpanel-net
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: monitoring-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+    networks:
+      - mcpanel-net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: monitoring-cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - mcpanel-net
 
 networks:
   mcpanel-net:
     driver: bridge
+
+secrets:
+  grafana_admin_password:
+    file: ./config/grafana_password.txt
+
+volumes:
+  prometheus-data:
+  grafana-data:

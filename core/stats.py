@@ -1,8 +1,10 @@
 import json
 import os
 import re
-
+import logging
 import nbtlib
+
+logger = logging.getLogger(__name__)
 
 
 class PlayerStatsManager:
@@ -47,9 +49,9 @@ class PlayerStatsManager:
                                 "uuid": p["uuid"]
                             })
             except json.JSONDecodeError as e:
-                print(f"[WARN] Erreur parsing usercache.json: {e}")
+                logger.warning(f"[WARN] Erreur parsing usercache.json: {e}")
             except Exception as e:
-                print(f"[WARN] Erreur lecture usercache: {e}")
+                logger.warning(f"[WARN] Erreur lecture usercache: {e}")
         
         return players
 
@@ -140,7 +142,7 @@ class PlayerStatsManager:
                             else:
                                 data["inventory"].append(item_data)
                         except Exception as e:
-                            print(f"[WARN] Item ignoré (malformé): {e}")
+                            logger.warning(f"[WARN] Item ignoré (malformé): {e}")
                             continue
 
                 # EnderChest
@@ -158,11 +160,11 @@ class PlayerStatsManager:
                                 "count": count
                             })
                         except Exception as e:
-                            print(f"[WARN] EnderItem ignoré: {e}")
+                            logger.warning(f"[WARN] EnderItem ignoré: {e}")
                             continue
 
             except Exception as e:
-                print(f"[WARN] Erreur lecture fichier NBT {uuid}: {e}")
+                logger.warning(f"[WARN] Erreur lecture fichier NBT {uuid}: {e}")
 
         # Lecture des statistiques JSON
         stat_path = os.path.join(server_path, "world", "stats", f"{uuid}.json")
@@ -200,9 +202,9 @@ class PlayerStatsManager:
                     data["stats"]["jumps"] = custom.get("minecraft:jump", 0)
 
             except json.JSONDecodeError as e:
-                print(f"[WARN] Erreur parsing stats JSON: {e}")
+                logger.warning(f"[WARN] Erreur parsing stats JSON: {e}")
             except Exception as e:
-                print(f"[WARN] Erreur lecture stats {uuid}: {e}")
+                logger.warning(f"[WARN] Erreur lecture stats {uuid}: {e}")
 
         return data
 
@@ -216,7 +218,7 @@ class PlayerStatsManager:
                 with open(ops_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"[WARN] Erreur lecture ops.json: {e}")
+                logger.warning(f"[WARN] Erreur lecture ops.json: {e}")
         
         return []
 
@@ -230,7 +232,7 @@ class PlayerStatsManager:
                 with open(banned_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"[WARN] Erreur lecture banned-players.json: {e}")
+                logger.warning(f"[WARN] Erreur lecture banned-players.json: {e}")
         
         return []
 
@@ -244,6 +246,6 @@ class PlayerStatsManager:
                 with open(whitelist_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"[WARN] Erreur lecture whitelist.json: {e}")
+                logger.warning(f"[WARN] Erreur lecture whitelist.json: {e}")
         
         return []

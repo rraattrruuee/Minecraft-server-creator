@@ -36,7 +36,42 @@ content %}
   </div>
 </div>
 
+<!-- Modal Installation -->
+<div class="modal fade" id="installModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Installer <span id="installTitle"></span></h5>
+        <button type="button" class="close" data-dismiss="modal">
+          <span>&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="serverSelect"
+            >Sélectionner le serveur de destination :</label
+          >
+          <select class="form-control" id="serverSelect">
+            <option value="">Chargement...</option>
+          </select>
+        </div>
+        <div id="installStatus" class="alert d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">
+          Annuler
+        </button>
+        <button type="button" class="btn btn-primary" id="confirmInstallBtn">
+          Confirmer l'installation
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+  let currentProjectId = null;
+
   function handleEnter(e) {
     if (e.key === "Enter") searchMarket();
   }
@@ -88,7 +123,7 @@ content %}
                         </div>
                     </div>
                     <div class="card-footer">
-                        <button class="btn btn-sm btn-outline-success btn-block" onclick="installPlugin('${item.id}')">Installer</button>
+                        <button class="btn btn-sm btn-outline-success btn-block" onclick="showInstallModal('${item.id}', '${item.title.replace(/'/g, "\\'")}')">Installer</button>
                     </div>
                 </div>
             `;
@@ -96,9 +131,75 @@ content %}
     });
   }
 
-  function installPlugin(id) {
-    // TODO: Implement install modal with server selection
-    alert("Fonctionnalité d'installation à venir pour ID: " + id);
+  async function showInstallModal(id, title) {
+    currentProjectId = id;
+    document.getElementById("installTitle").innerText = title;
+
+    // Reset status
+    const status = document.getElementById("installStatus");
+    status.className = "alert d-none";
+
+    $("#installModal").modal("show");
+
+    // Load servers
+    const select = document.getElementById("serverSelect");
+    select.innerHTML = '<option value="">Chargement...</option>';
+
+    try {
+      const res = await fetch("/api/servers");
+      const data = await res.json();
+
+      select.innerHTML = "";
+      if (data.status === "success" && data.servers.length > 0) {
+        data.servers.forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = s.name;
+          opt.innerText = s.name;
+          select.appendChild(opt);
+        });
+      } else {
+        select.innerHTML = '<option value="">Aucun serveur trouvé</option>';
+      }
+    } catch (e) {
+      select.innerHTML = '<option value="">Erreur chargement serveurs</option>';
+    }
   }
+
+  document.getElementById("confirmInstallBtn").onclick = async function () {
+    const serverName = document.getElementById("serverSelect").value;
+    if (!serverName) return alert("Sélectionnez un serveur");
+
+    const btn = this;
+    btn.disabled = true;
+    btn.innerText = "Installation...";
+
+    try {
+      const res = await fetch("/api/market/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: currentProjectId,
+          server_name: serverName,
+        }),
+      });
+      const data = await res.json();
+
+      const status = document.getElementById("installStatus");
+      status.classList.remove("d-none");
+      if (data.status === "success") {
+        status.className = "alert alert-success";
+        status.innerText = "Installation réussie !";
+        setTimeout(() => $("#installModal").modal("hide"), 2000);
+      } else {
+        status.className = "alert alert-danger";
+        status.innerText = "Erreur : " + data.message;
+      }
+    } catch (e) {
+      alert("Erreur réseau");
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "Confirmer l'installation";
+    }
+  };
 </script>
 {% endblock %}

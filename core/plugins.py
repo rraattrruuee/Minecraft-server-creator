@@ -1,7 +1,9 @@
 import os
 import re
-
+import logging
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class PluginManager:
@@ -65,13 +67,13 @@ class PluginManager:
                 if not paper_results and results:
                     return {"result": results}
                 return {"result": paper_results if paper_results else results}
-            print(f"[WARN] Hangar API retourné status {r.status_code}")
+            logger.warning(f"[WARN] Hangar API retourné status {r.status_code}")
             return {"result": []}
         except requests.Timeout:
-            print("[WARN] Timeout lors de la recherche Hangar")
+            logger.warning("[WARN] Timeout lors de la recherche Hangar")
             return {"result": [], "error": "Timeout"}
         except Exception as e:
-            print(f"[ERROR] Erreur recherche plugins: {e}")
+            logger.error(f"[ERROR] Erreur recherche plugins: {e}")
             return {"result": [], "error": str(e)}
 
     def list_installed(self, srv_name):
@@ -93,7 +95,7 @@ class PluginManager:
                         "path": full_path
                     })
         except Exception as e:
-            print(f"[WARN] Erreur listage plugins: {e}")
+            logger.warning(f"[WARN] Erreur listage plugins: {e}")
         
         return sorted(plugins, key=lambda x: x["name"].lower())
 
@@ -141,7 +143,7 @@ class PluginManager:
             safe_version = re.sub(r'[^\w\-.]', '_', version_name)
             fname = f"{safe_slug}-{safe_version}.jar"
             
-            print(f"[INFO] Téléchargement: {fname}")
+            logger.info(f"[INFO] Téléchargement: {fname}")
             dest = os.path.join(plugins_path, fname)
 
             # Vérifier si déjà installé
@@ -160,9 +162,9 @@ class PluginManager:
                         downloaded += len(chunk)
                         if total > 0:
                             pct = int(downloaded * 100 / total)
-                            print(f"[INFO] Téléchargement: {pct}%", end="\r")
+                            logger.info(f"[INFO] Téléchargement: {pct}%", end="\r")
 
-            print(f"[INFO] Plugin installé: {fname}")
+            logger.info(f"[INFO] Plugin installé: {fname}")
             return {"success": True, "filename": fname}
             
         except requests.Timeout:
@@ -170,7 +172,7 @@ class PluginManager:
         except requests.HTTPError as e:
             return {"success": False, "message": f"Erreur HTTP: {e.response.status_code}"}
         except Exception as e:
-            print(f"[ERROR] Erreur installation plugin: {e}")
+            logger.error(f"[ERROR] Erreur installation plugin: {e}")
             return {"success": False, "message": str(e)}
 
     def uninstall(self, srv_name, plugin_name):
@@ -187,8 +189,8 @@ class PluginManager:
         
         try:
             os.remove(plugin_path)
-            print(f"[INFO] Plugin supprimé: {plugin_name}")
+            logger.info(f"[INFO] Plugin supprimé: {plugin_name}")
             return {"success": True}
         except Exception as e:
-            print(f"[ERROR] Erreur suppression plugin: {e}")
+            logger.error(f"[ERROR] Erreur suppression plugin: {e}")
             return {"success": False, "message": str(e)}

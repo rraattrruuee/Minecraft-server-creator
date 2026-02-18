@@ -4,8 +4,10 @@ from core.swarm_deployer import SwarmDeployer
 from core.minecraft_swarm import MinecraftSwarmGenerator
 import os
 import json
+import logging
 
 swarm_bp = Blueprint('swarm', __name__, url_prefix='/swarm')
+logger = logging.getLogger(__name__)
 
 # Configuration storage (simplified for now, ideally in config_editor)
 SWARM_CONFIG_FILE = 'data/swarm_config.json'

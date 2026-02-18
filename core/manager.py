@@ -8,9 +8,13 @@ import time
 import zipfile
 import tarfile
 import yaml
+import logging
+import uuid
 from typing import List, Dict, Any
 from datetime import datetime
 from werkzeug.utils import secure_filename
+
+logger = logging.getLogger(__name__)
 
 # Templates de serveurs pré-configurés
 SERVER_TEMPLATES = {
@@ -123,10 +127,10 @@ class ServerManager:
         # Si déjà téléchargé, retourner le chemin
         java_bin = self._get_java_path(java_version)
         if java_bin:
-            print(f"[INFO] Java {java_version} déjà présent")
+            logger.info(f"Java {java_version} déjà présent")
             return java_bin
         
-        print(f"[INFO] Téléchargement de Java {java_version}...")
+        logger.info(f"Téléchargement de Java {java_version}...")
         
         # Déterminer l'OS et l'architecture
         system = platform.system().lower()
@@ -179,7 +183,7 @@ class ServerManager:
                 raise Exception("URL de téléchargement non trouvée")
             
             # Télécharger l'archive
-            print(f"[INFO] Téléchargement depuis: {download_url[:80]}...")
+            logger.info(f"Téléchargement depuis: {download_url[:80]}...")
             archive_path = os.path.join(self.java_dir, f"java-{java_version}.{ext}")
             
             with requests.get(download_url, stream=True, timeout=300) as r:
@@ -192,9 +196,9 @@ class ServerManager:
                         downloaded += len(chunk)
                         if total > 0:
                             pct = int(downloaded * 100 / total)
-                            print(f"[INFO] Téléchargement Java: {pct}%", end="\r")
+                            logger.info(f"Téléchargement Java: {pct}%", end="\r")
             
-            print(f"\n[INFO] Extraction de Java {java_version}...")
+            logger.info(f"Extraction de Java {java_version}...")
             
             # Extraire l'archive
             temp_extract = os.path.join(self.java_dir, f"temp_java_{java_version}")
@@ -219,13 +223,13 @@ class ServerManager:
             
             java_bin = self._get_java_path(java_version)
             if java_bin:
-                print(f"[INFO] Java {java_version} installé avec succès!")
+                logger.info(f"Java {java_version} installé avec succès!")
                 return java_bin
             else:
                 raise Exception("Installation Java échouée")
             
         except Exception as e:
-            print(f"[ERROR] Erreur téléchargement Java: {e}")
+            logger.error(f"Erreur téléchargement Java: {e}")
             # Nettoyage en cas d'erreur
             shutil.rmtree(java_home, ignore_errors=True)
             raise Exception(f"Impossible de télécharger Java {java_version}: {e}")
@@ -320,12 +324,12 @@ class ServerManager:
             cache.set('paper_versions', versions)
             return versions
         except Exception as e:
-            print(f"[WARN] PaperMC API indisponible: {e}")
+            logger.warning(f"PaperMC API indisponible: {e}")
         
         # 3. Fallback hardcodé (versions populaires)
         fallback = ["1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.19.4", "1.19.3", "1.19.2", "1.18.2"]
         cache.set('paper_versions', fallback)
-        print("[INFO] Utilisation des versions Paper par défaut")
+        logger.info("Utilisation des versions Paper par défaut")
         return fallback
     
     def get_paper_build_info(self, version: str) -> Dict[str, Any]:
@@ -374,7 +378,7 @@ class ServerManager:
             return build_info
             
         except Exception as e:
-            print(f"[WARN] Erreur récupération builds Paper {version}: {e}")
+            logger.warning(f"Erreur récupération builds Paper {version}: {e}")
             return {"version": version, "error": str(e)}
     
     def get_paper_download_url(self, version: str, build: int = None) -> str:
@@ -416,10 +420,10 @@ class ServerManager:
             cache.set('forge_versions', versions)
             return versions
         except Exception as e:
-            print(f"[WARN] Forge API indisponible: {e}")
+            logger.warning(f"Forge API indisponible: {e}")
         
         # 3. Fallback vide avec message
-        print("[INFO] Forge API inaccessible - création serveurs Forge indisponible")
+        logger.info("Forge API inaccessible - création serveurs Forge indisponible")
         return {}
     
     def get_forge_builds(self, mc_version: str) -> Dict[str, Any]:
@@ -460,7 +464,7 @@ class ServerManager:
             return result
             
         except Exception as e:
-            print(f"[WARN] Erreur récupération builds Forge: {e}")
+            logger.warning(f"Erreur récupération builds Forge: {e}")
             return {"mc_version": mc_version, "builds": [], "error": str(e)}
     
     def get_neoforge_versions(self) -> Dict[str, Any]:
@@ -513,7 +517,7 @@ class ServerManager:
             return result
             
         except Exception as e:
-            print(f"[WARN] NeoForge API indisponible: {e}")
+            logger.warning(f"NeoForge API indisponible: {e}")
             return {"versions": {}, "all_versions": [], "error": str(e)}
     
     def get_fabric_versions(self):
@@ -544,10 +548,10 @@ class ServerManager:
             cache.set('fabric_versions', result)
             return result
         except Exception as e:
-            print(f"[WARN] Fabric API indisponible: {e}")
+            logger.warning(f"Fabric API indisponible: {e}")
         
         # 3. Fallback vide
-        print("[INFO] Fabric API inaccessible - création serveurs Fabric indisponible")
+        logger.info("Fabric API inaccessible - création serveurs Fabric indisponible")
         return {"loader": [], "loader_all": [], "game": [], "game_all": []}
     
     def get_fabric_loader_for_game(self, mc_version: str) -> List[str]:
@@ -579,7 +583,7 @@ class ServerManager:
             return result
             
         except Exception as e:
-            print(f"[WARN] Erreur récupération loaders Fabric: {e}")
+            logger.warning(f"Erreur récupération loaders Fabric: {e}")
             return []
     
     def get_quilt_versions(self) -> Dict[str, Any]:
@@ -607,7 +611,7 @@ class ServerManager:
             return result
             
         except Exception as e:
-            print(f"[WARN] Quilt API indisponible: {e}")
+            logger.warning(f"Quilt API indisponible: {e}")
             return {"loader": [], "game": []}
 
     def download_forge_server(self, path, mc_version, forge_version):
@@ -623,7 +627,7 @@ class ServerManager:
                     f.write(chunk)
         
         # Run installer
-        print("[INFO] Running Forge installer...")
+        logger.info("Running Forge installer...")
         java_path = self.ensure_java_for_version(mc_version) or "java"
         result = subprocess.run(
             [java_path, "-jar", "forge-installer.jar", "--installServer"],
@@ -680,7 +684,7 @@ class ServerManager:
                         f.write(chunk)
             
             # Run installer
-            print("[INFO] Running NeoForge installer...")
+            logger.info("Running NeoForge installer...")
             java_path = self.ensure_java_for_version(mc_version) or "java"
             result = subprocess.run(
                 [java_path, "-jar", "neoforge-installer.jar", "--installServer"],
@@ -703,7 +707,7 @@ class ServerManager:
             
             return True
         except Exception as e:
-            print(f"[ERROR] NeoForge download failed: {e}")
+            logger.error(f"NeoForge download failed: {e}")
             raise Exception(f"NeoForge download failed: {e}")
 
     def download_quilt_server(self, path, mc_version, loader_version):
@@ -726,7 +730,7 @@ class ServerManager:
             return True
         except Exception as e:
             # Fallback: use quilt installer
-            print(f"[WARN] Quilt direct download failed, using installer: {e}")
+            logger.warning(f"Quilt direct download failed, using installer: {e}")
             installer_url = f"https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/{installer_version}/quilt-installer-{installer_version}.jar"
             installer_path = os.path.join(path, "quilt-installer.jar")
             
@@ -783,10 +787,10 @@ class ServerManager:
                 try:
                     with open(config_path, "r", encoding="utf-8") as f:
                         raw = f.read()
-                    print(f"[DEBUG] get_server_config: raw content of {config_path}: {raw}")
+                    logger.debug(f"get_server_config: raw content of {config_path}: {raw}")
                     config = json.loads(raw)
                 except Exception as e:
-                    print(f"[WARN] Erreur lecture/parsing de {config_path}: {e}")
+                    logger.warning(f"Erreur lecture/parsing de {config_path}: {e}")
                     config = {}
 
                 # Auto-detect server type if missing
@@ -794,10 +798,10 @@ class ServerManager:
                     config["server_type"] = self.detect_server_type(name)
                 
                 merged = {**default_config, **config}
-                print(f"[DEBUG] get_server_config parsed {name}: {merged}")
+                logger.debug(f"get_server_config parsed {name}: {merged}")
                 return merged
         except Exception as e:
-            print(f"[WARN] Erreur lecture config {name}: {e}")
+            logger.warning(f"Erreur lecture config {name}: {e}")
         return default_config
 
     def detect_server_type(self, name) -> str:
@@ -871,10 +875,10 @@ class ServerManager:
                     snippet = snippet[:200] + '...'
             except Exception:
                 snippet = '<unserializable>'
-            print(f"[DEBUG] save_server_config {name} @ {datetime.now().isoformat()} keys={list(config.keys())} has_server_type={('server_type' in config)} has_version={('version' in config)} snippet={snippet}")
+            logger.debug(f"save_server_config {name} @ {datetime.now().isoformat()} keys={list(config.keys())} has_server_type={('server_type' in config)} has_version={('version' in config)} snippet={snippet}")
             return True
         except Exception as e:
-            print(f"[ERROR] Erreur sauvegarde config {name}: {e}")
+            logger.error(f"Erreur sauvegarde config {name}: {e}")
             return False
 
     def set_server_meta(self, name, version=None, server_type=None, loader_version=None, forge_version=None):
@@ -906,7 +910,7 @@ class ServerManager:
             s.bind(('', 0))
             return s.getsockname()[1]
 
-    def create_server(self, name, version, ram_min="1G", ram_max="2G", storage_limit=None, base_path=None, server_type="paper", loader_version=None, forge_version=None, owner="admin"):
+    def create_server(self, name, version, ram_min="1G", ram_max="2G", cpu_limit=None, storage_limit=None, base_path=None, server_type="paper", loader_version=None, forge_version=None, owner="admin", port=None):
         """Crée un nouveau serveur Docker"""
         # Utiliser le base_path personnalisé si fourni
         if base_path:
@@ -931,14 +935,24 @@ class ServerManager:
         os.makedirs(os.path.join(data_dir, "plugins"), exist_ok=True)
         os.makedirs(os.path.join(data_dir, "mods"), exist_ok=True)
 
-        print(f"[INFO] Configuration Docker pour {server_type.title()} {version}...")
+        logger.info(f"Configuration Docker pour {server_type.title()} {version}...")
         
         # Allocation port
-        port = 25565
-        for p in range(25565, 25700):
-            if not self._is_port_in_use(p):
-                port = p
-                break
+        if port:
+            try:
+                port = int(port)
+                if self._is_port_in_use(port):
+                    logger.warning(f"Port {port} spécifié est déjà utilisé. Recherche d'un autre port...")
+                    port = None
+            except:
+                port = None
+
+        if not port:
+            port = 25565
+            for p in range(25565, 25700):
+                if not self._is_port_in_use(p):
+                    port = p
+                    break
         
         # UID/GID pour permissions
         uid = os.getuid()
@@ -998,6 +1012,17 @@ class ServerManager:
             }
         }
         
+        # CPU Limit (Docker Compose deploy resources)
+        if cpu_limit:
+            compose_config["services"]["mc"]["deploy"] = {
+                "resources": {
+                    "limits": {
+                        "cpus": str(cpu_limit),
+                        "memory": ram_max
+                    }
+                }
+            }
+
         # Options spécifiques
         if server_type == "forge" and forge_version:
              compose_config["services"]["mc"]["environment"]["FORGE_VERSION"] = forge_version
@@ -1013,6 +1038,8 @@ class ServerManager:
             "id": self.server_id,
             "ram_min": ram_min,
             "ram_max": ram_max,
+            "cpu_limit": cpu_limit,
+            "storage_limit": storage_limit,
             "version": version,
             "server_type": server_type,
             "created_at": datetime.now().isoformat(),
@@ -1028,10 +1055,62 @@ class ServerManager:
             config["forge_version"] = forge_version
         
         self.save_server_config(name, config)
-        print(f"[INFO] Serveur {name} créé avec succès (Port: {port})")
+        logger.info(f"Serveur {name} créé avec succès (Port: {port})")
 
     # Ancienne methode de download supprimee/remplacee par Docker qui gere tout
     
+
+    def rename_server(self, old_name, new_name):
+        """Renomme un serveur (Dossier + Conteneur + Config)"""
+        old_path = self._get_server_path(old_name)
+        new_name = self._validate_name(new_name)
+        new_path = os.path.join(self.base_dir, new_name)
+
+        if os.path.exists(new_path):
+            raise Exception(f"Le nom '{new_name}' est déjà utilisé.")
+
+        # 1. Stopper le serveur s'il tourne
+        status = self.get_status(old_name)
+        if status != "offline":
+            logger.info(f"Arrêt de {old_name} avant renommage...")
+            self.stop(old_name)
+            time.sleep(2)
+
+        # 2. Renommer le dossier
+        try:
+            os.rename(old_path, new_path)
+        except Exception as e:
+            logger.error(f"Erreur renommage dossier: {e}")
+            raise Exception(f"Impossible de renommer le dossier: {e}")
+
+        # 3. Mettre à jour docker-compose.yml si Docker
+        compose_path = os.path.join(new_path, "docker-compose.yml")
+        if os.path.exists(compose_path):
+            try:
+                with open(compose_path, "r") as f:
+                    compose = yaml.safe_load(f)
+                
+                # Update container name and labels
+                compose["services"]["mc"]["container_name"] = f"mc-{new_name}"
+                compose["services"]["mc"]["labels"]["com.mcpanel.server"] = new_name
+                
+                with open(compose_path, "w") as f:
+                    yaml.dump(compose, f)
+            except Exception as e:
+                logger.warning(f"Erreur mise à jour compose pour renommage: {e}")
+
+        # 4. Mettre à jour manager_config.json
+        try:
+            cfg = self.get_server_config(new_name)
+            # Pas besoin de mettre à jour le nom dans le JSON car il est déduit du dossier,
+            # mais on pourrait y stocker un 'display_name' plus tard.
+            # On force la sauvegarde pour s'assurer que tout est OK.
+            self.save_server_config(new_name, cfg)
+        except Exception as e:
+            logger.warning(f"Erreur mise à jour config pour renommage: {e}")
+
+        logger.info(f"Serveur {old_name} renommé en {new_name}")
+        return True
 
     def action(self, name, action):
         if action == "start":
@@ -1045,9 +1124,9 @@ class ServerManager:
                 self.webhook_mgr.dispatch("server.restarting", {"server": name})
                 try:
                     subprocess.run(["docker", "compose", "restart"], cwd=path, check=True)
-                    print(f"[INFO] Serveur {name} redémarré (Docker Native)")
+                    logger.info(f"Serveur {name} redémarré (Docker Native)")
                 except Exception as e:
-                    print(f"[ERROR] Restart Docker échoué, fallback sur stop/start: {e}")
+                    logger.error(f"Restart Docker échoué, fallback sur stop/start: {e}")
                     self.stop(name)
                     time.sleep(2)
                     self.start(name)
@@ -1077,7 +1156,7 @@ class ServerManager:
             if self.is_running(name):
                 return
             
-            print(f"[INFO] Démarrage Docker pour {name}...")
+            logger.info(f"Démarrage Docker pour {name}...")
             try:
                 # Security Check: Verify file permissions before start
                 data_dir = os.path.join(path, "data")
@@ -1094,7 +1173,7 @@ class ServerManager:
                     stdout=subprocess.PIPE, 
                     stderr=subprocess.PIPE
                 )
-                print(f"[INFO] Conteneur démarré pour {name}")
+                logger.info(f"Conteneur démarré pour {name}")
                 return
             except subprocess.CalledProcessError as e:
                 err = e.stderr.decode() if e.stderr else str(e)
@@ -1152,7 +1231,7 @@ class ServerManager:
                 cmd, cwd=path, stdin=subprocess.PIPE, stdout=log_file,
                 stderr=subprocess.STDOUT, text=True, creationflags=flags,
             )
-            print(f"[INFO] Serveur Legacy {name} démarré")
+            logger.info(f"Serveur Legacy {name} démarré")
         except Exception as e:
             log_file.close()
             del self.log_files[name]
@@ -1167,7 +1246,7 @@ class ServerManager:
             try:
                 subprocess.run(["docker", "compose", "stop"], cwd=path, check=False)
             except Exception as e:
-                print(f"[WARN] Erreur stop docker {name}: {e}")
+                logger.warning(f"Erreur stop docker {name}: {e}")
             return
 
         # 2. Legacy
@@ -1196,7 +1275,8 @@ class ServerManager:
         if name in self.procs:
             try:
                 self.procs[name].kill()
-            except: pass
+            except Exception:
+                logger.debug(f"Kill failed for {name} (already dead?)", exc_info=True)
             finally:
                 self._cleanup_process(name)
 
@@ -1204,7 +1284,8 @@ class ServerManager:
         if name in self.procs: del self.procs[name]
         if name in self.log_files:
             try: self.log_files[name].close()
-            except: pass
+            except Exception:
+                logger.debug(f"Failed to close log file for {name}", exc_info=True)
             del self.log_files[name]
 
     def delete_server(self, name):
@@ -1220,7 +1301,7 @@ class ServerManager:
         
         time.sleep(1)
         shutil.rmtree(path, ignore_errors=True)
-        print(f"[INFO] Serveur {name} supprimé")
+        logger.info(f"Serveur {name} supprimé")
 
     def is_running(self, name):
         # 1. Check Docker
@@ -1277,8 +1358,7 @@ class ServerManager:
                         status["ram_mb"] = val
                         status["pid"] = "Docker"
             except Exception as e:
-                # print(f"Err stats docker: {e}")
-                pass
+                logger.debug(f"Err stats docker for {name}: {e}")
             return status
 
         # Legacy Stats
@@ -1290,7 +1370,8 @@ class ServerManager:
                 status["cpu"] = round(proc.cpu_percent(interval=0.1), 1)
                 mem_info = proc.memory_info()
                 status["ram_mb"] = round(mem_info.rss / 1024 / 1024, 1)
-            except: pass
+            except Exception:
+                logger.debug(f"Failed to get legacy stats for {name}", exc_info=True)
         
         return status
     
@@ -1305,14 +1386,15 @@ class ServerManager:
                  try:
                     subprocess.run(["docker", "exec", "-i", f"mc-{name}", "rcon-cli", cmd], check=False)
                  except Exception as e:
-                    print(f"[ERROR] Echec commande Docker {name}: {e}")
+                    logger.error(f"Echec commande Docker {name}: {e}")
             return
 
         if self.is_running(name):
             try:
                 self.procs[name].stdin.write(cmd.strip() + "\n")
                 self.procs[name].stdin.flush()
-            except: pass
+            except Exception:
+                logger.debug(f"Failed to send command to legacy server {name}", exc_info=True)
 
     def get_logs(self, name, lines=100, filter_type=None, search=None):
         try:
@@ -1332,7 +1414,7 @@ class ServerManager:
                     if res.returncode == 0:
                         logs_content = res.stdout.splitlines()
                 except Exception as e:
-                    print(f"[WARN] Erreur lecture logs Docker {name}: {e}")
+                    logger.warning(f"Erreur lecture logs Docker {name}: {e}")
             
             # 2. File Logs (Legacy ou Fallback)
             if not logs_content:
@@ -1357,7 +1439,8 @@ class ServerManager:
                         with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
                             tail = deque(f, maxlen=lines)
                             logs_content = [l.rstrip("\n") for l in tail]
-                    except: pass
+                    except Exception:
+                        logger.debug(f"Failed to read logs file {log_path}", exc_info=True)
 
             # Apply filters
             result = logs_content
@@ -1377,7 +1460,7 @@ class ServerManager:
 
             return result
         except Exception as e:
-            print(f"[WARN] Erreur lecture logs: {e}")
+            logger.warning(f"Erreur lecture logs: {e}")
             return []
 
     def get_logs_files(self, name):
@@ -1418,7 +1501,7 @@ class ServerManager:
                             key, value = line.split("=", 1)
                             props[key] = value
         except Exception as e:
-            print(f"[WARN] Erreur lecture properties: {e}")
+            logger.warning(f"Erreur lecture properties: {e}")
         
         return props
 
@@ -1441,7 +1524,7 @@ class ServerManager:
             
             return True
         except Exception as e:
-            print(f"[ERROR] Erreur sauvegarde properties: {e}")
+            logger.error(f"Erreur sauvegarde properties: {e}")
             raise Exception(f"Erreur sauvegarde: {e}")
 
     def backup_server(self, name):
@@ -1456,7 +1539,7 @@ class ServerManager:
         
         # 1. Sauvegarde en jeu (Flush to disk)
         if self.is_running(name):
-            print(f"[BACKUP] Forçage de la sauvegarde pour {name}")
+            logger.info(f"Forçage de la sauvegarde pour {name}")
             self.send_command(name, "save-all")
             # Attendre l'écriture disque
             time.sleep(5)
@@ -1464,7 +1547,7 @@ class ServerManager:
             self.send_command(name, "save-off")
         
         try:
-            print(f"[INFO] Création backup ZIP pour {name}...")
+            logger.info(f"Création backup ZIP pour {name}...")
             with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for root, dirs, files in os.walk(path):
                      # Exclusions intelligentes (logs archivés, backups récursifs...)
@@ -1481,7 +1564,7 @@ class ServerManager:
                          rel_path = os.path.relpath(abs_path, start=path)
                          zf.write(abs_path, arcname=rel_path)
             
-            print(f"[INFO] Backup ZIP créé: {backup_name}")
+            logger.info(f"Backup ZIP créé: {backup_name}")
             return {"success": True, "name": backup_name, "path": backup_path}
             
         except Exception as e:
@@ -1493,8 +1576,8 @@ class ServerManager:
             if self.is_running(name):
                 self.send_command(name, "save-on")
 
-    def update_docker_resources(self, name, port=None, ram_max=None, ram_min=None, cpu_limit=None):
-        """Met à jour les ressources Docker (Port, RAM, CPU)"""
+    def update_docker_resources(self, name, port=None, ram_max=None, ram_min=None, cpu_limit=None, version=None, server_type=None):
+        """Met à jour les ressources Docker (Port, RAM, CPU, Version)"""
         path = self._get_server_path(name)
         compose_path = os.path.join(path, "docker-compose.yml")
         
@@ -1514,6 +1597,12 @@ class ServerManager:
                 compose["services"]["mc"]["environment"]["MEMORY"] = ram_max
             if ram_min:
                 compose["services"]["mc"]["environment"]["INIT_MEMORY"] = ram_min
+
+            # Update Version/Type
+            if version:
+                compose["services"]["mc"]["environment"]["VERSION"] = version
+            if server_type:
+                compose["services"]["mc"]["environment"]["TYPE"] = server_type.upper()
             
             # Update CPU (requires version removal or proper deploy key, but we stick to standard service/deploy for now
             # Note: CPU limits in compose v3+ usually inside deploy.resources.limits
@@ -1539,20 +1628,22 @@ class ServerManager:
             if port: cfg["port"] = int(port)
             if ram_max: cfg["ram_max"] = ram_max
             if ram_min: cfg["ram_min"] = ram_min
+            if version: cfg["version"] = version
+            if server_type: cfg["server_type"] = server_type
             self.save_server_config(name, cfg)
 
-            print(f"[INFO] Ressources mises à jour pour {name}")
+            logger.info(f"Ressources mises à jour pour {name}")
             
             # Apply changes immediately
             try:
                 subprocess.run(["docker", "compose", "up", "-d"], cwd=path, check=True)
-                print(f"[INFO] Docker compose reload effectué pour {name}")
+                logger.info(f"Docker compose reload effectué pour {name}")
             except Exception as e:
-                print(f"[WARN] Failed to reload docker compose: {e}")
+                logger.warning(f"Failed to reload docker compose: {e}")
 
             return True
         except Exception as e:
-            print(f"[ERROR] Update resources failed: {e}")
+            logger.error(f"Update resources failed: {e}")
             raise Exception(f"Echec mise à jour: {e}")
 
     def get_docker_resources(self, name):
@@ -1588,7 +1679,7 @@ class ServerManager:
                 "restart_policy": mc.get("restart", "unless-stopped")
             }
         except Exception as e:
-            print(f"[WARN] Error reading config for {name}: {e}")
+            logger.warning(f"Error reading config for {name}: {e}")
             return {}
 
     def list_backups(self, name=None):
@@ -1948,7 +2039,7 @@ class ServerManager:
             data = r.json()
             return data.get("hits", [])
         except Exception as e:
-            print(f"[Mods] Search error: {e}")
+            logger.info(f"Search error: {e}")
             return []
 
     def install_mod(self, server_name, project_id, version_id=None):
@@ -2004,7 +2095,7 @@ class ServerManager:
             # 3. Download
             dest = os.path.join(mods_dir, filename)
             
-            print(f"[Mods] Downloading {filename} to {dest}...")
+            logger.info(f"Downloading {filename} to {dest}...")
             with requests.get(download_url, stream=True) as r:
                 r.raise_for_status()
                 with open(dest, 'wb') as f:
@@ -2070,3 +2161,27 @@ class ServerManager:
                     return port
             port += 1
         return None
+
+    def docker_prune(self, images=True, volumes=True):
+        """Supprime les ressources Docker orphelines pour libérer de l'espace."""
+        results = {}
+        try:
+            if images:
+                logger.info("Exécution de docker image prune...")
+                # -a pour supprimer aussi les images inutilisées (pas seulement les dangling)
+                # filters pour ne pas supprimer les trucs trop récents
+                cmd = ["docker", "image", "prune", "-a", "-f", "--filter", "until=24h"]
+                out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode()
+                results["images"] = out
+            
+            if volumes:
+                logger.info("Exécution de docker volume prune...")
+                cmd = ["docker", "volume", "prune", "-f"]
+                out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode()
+                results["volumes"] = out
+                
+            logger.info("Nettoyage Docker terminé.")
+            return True, results
+        except Exception as e:
+            logger.error(f"Erreur lors du nettoyage Docker: {e}")
+            return False, str(e)

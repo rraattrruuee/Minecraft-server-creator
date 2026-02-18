@@ -5706,6 +5706,8 @@ async function modifyPlayerStat(playerName, stat, amount) {
  * URLs des textures Minecraft avec fallbacks multiples (sources fiables 2024)
  */
 const TEXTURE_SOURCES = [
+  // Source 0: Local Assets (Priorité maximale)
+  (id) => `/static/textures/items/${id.replace("minecraft:", "")}.png`,
   // Source 1: MinecraftItems API - Direct CDN
   (id) =>
     `https://minecraftitemids.com/item/32/${id.replace("minecraft:", "")}.png`,
@@ -8092,6 +8094,8 @@ function openModal() {
   }
   // load versions and reset selects
   loadVersions();
+  // Suggérer un port libre au chargement du modal
+  suggestPort();
 }
 
 function closeModal() {
@@ -8127,6 +8131,7 @@ async function createServer(event) {
         version,
         ram_min: ramMin + "M",
         ram_max: ramMax + "M",
+        port: document.getElementById("server-port-input")?.value || null,
         server_type: document.getElementById("server-type")?.value || "paper",
         loader_version: document.getElementById("fabric-loader")?.value || null,
         forge_version: document.getElementById("forge-version")?.value || null,

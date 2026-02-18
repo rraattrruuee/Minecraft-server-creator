@@ -121,7 +121,10 @@ def main():
                 else:
                     while True: time.sleep(1)
             except KeyboardInterrupt:
-                pass
+                logger.info("Fermeture demandée par l'utilisateur.")
+                if backend_process:
+                    backend_process.terminate()
+                sys.exit(0)
         else:
             logger.error("Le backend n'a pas démarré correctement.")
             if backend_process:

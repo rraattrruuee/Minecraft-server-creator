@@ -64,7 +64,7 @@ class SwarmDeployer:
         target_cwd = cwd if cwd else os.getcwd()
         if self.si_swarm_path and not os.path.isabs(self.si_swarm_path) and cwd is None:
              # Resolve relative path against current working directory if not absolute
-             pass 
+             self.si_swarm_path = os.path.abspath(os.path.join(os.getcwd(), self.si_swarm_path))
 
         try:
             process = subprocess.Popen(
@@ -111,16 +111,28 @@ class SwarmDeployer:
                 client.close()
 
     def create_secret(self, secret_name: str, secret_value: str) -> bool:
-        """Create a Docker Swarm secret securely."""
+        """Create a Docker Swarm secret securely using stdin."""
         if self.mode == 'remote':
-            # Note: passing secret in command line is insecure, should use pipe
-            cmd = f"echo '{secret_value}' | docker secret create {secret_name} -"
-            code, out, err = self.execute_command(cmd)
-            return code == 0
+            # Use Python's paramiko to pipe the secret directly to avoid command line exposure
+            client = None
+            try:
+                client = self._get_ssh_client()
+                stdin, stdout, stderr = client.exec_command(f"docker secret create {secret_name} -")
+                stdin.write(secret_value)
+                stdin.channel.shutdown_write()
+                exit_status = stdout.channel.recv_exit_status()
+                return exit_status == 0
+            except Exception as e:
+                self.logger.error(f"Failed to create remote secret: {e}")
+                return False
+            finally:
+                if client:
+                    client.close()
         else:
             # Local
             try:
-                p = subprocess.Popen(f"docker secret create {secret_name} -", shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                p = subprocess.Popen(["docker", "secret", "create", secret_name, "-"], 
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 out, err = p.communicate(input=secret_value.encode())
                 return p.returncode == 0
             except Exception as e:

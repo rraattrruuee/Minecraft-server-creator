@@ -1,6 +1,7 @@
 import json
 import os
 import secrets
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -115,9 +116,9 @@ class AuthManager:
                 admin = User(username='admin', password_hash=ph.hash('admin'), role='admin')
                 session.add(admin)
                 session.commit()
-                print('[AUTH] Default admin created (pwd: admin)')
+                logger.info('[AUTH] Default admin created (pwd: admin)')
         except Exception as e:
-            print('[AUTH] Error initializing DB users:', e)
+            logger.error(f'[AUTH] Error initializing DB users: {e}', exc_info=True)
             session.rollback()
         finally:
             session.close()
@@ -501,6 +502,10 @@ class AuthManager:
             pass
 
         try:
+            # Rotation manuelle simple: si > 5MB, on renomme
+            if os.path.exists(self.audit_file) and os.path.getsize(self.audit_file) > 5 * 1024 * 1024:
+                os.rename(self.audit_file, f"{self.audit_file}.{int(time.time())}.bak")
+                
             with open(self.audit_file, "a", encoding="utf-8") as f:
                 f.write(f"[{ts}] [{ip}] [{username}] {action}: {details}\n")
         except Exception:

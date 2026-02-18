@@ -6,8 +6,11 @@ import os
 import re
 import json
 import requests
+import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class ModManager:
@@ -131,7 +134,7 @@ class ModManager:
         except requests.Timeout:
             return {"results": [], "error": "Timeout", "total": 0}
         except Exception as e:
-            print(f"[ERROR] Erreur recherche mods: {e}")
+            logger.error(f"[ERROR] Erreur recherche mods: {e}")
             return {"results": [], "error": str(e), "total": 0}
     
     def get_mod_details(self, project_id: str) -> Dict[str, Any]:
@@ -229,7 +232,7 @@ class ModManager:
             return results
             
         except Exception as e:
-            print(f"[ERROR] Erreur récupération versions mod: {e}")
+            logger.error(f"[ERROR] Erreur récupération versions mod: {e}")
             return []
     
     def list_installed(self, srv_name: str) -> List[Dict[str, Any]]:
@@ -253,7 +256,7 @@ class ModManager:
                         "path": full_path
                     })
         except Exception as e:
-            print(f"[WARN] Erreur listage mods: {e}")
+            logger.warning(f"[WARN] Erreur listage mods: {e}")
         
         return sorted(mods, key=lambda x: x["name"].lower())
     
@@ -320,7 +323,7 @@ class ModManager:
             if os.path.exists(dest_path):
                 return {"success": False, "message": "Ce mod est déjà installé"}
             
-            print(f"[INFO] Téléchargement mod: {safe_filename}")
+            logger.info(f"[INFO] Téléchargement mod: {safe_filename}")
             
             with requests.get(download_url, stream=True, headers=self.headers, timeout=120) as r:
                 r.raise_for_status()
@@ -332,7 +335,7 @@ class ModManager:
                         f.write(chunk)
                         downloaded += len(chunk)
             
-            print(f"[INFO] Mod installé: {safe_filename}")
+            logger.info(f"[INFO] Mod installé: {safe_filename}")
             
             return {
                 "success": True,
@@ -346,7 +349,7 @@ class ModManager:
         except requests.HTTPError as e:
             return {"success": False, "message": f"Erreur HTTP: {e.response.status_code}"}
         except Exception as e:
-            print(f"[ERROR] Erreur installation mod: {e}")
+            logger.error(f"[ERROR] Erreur installation mod: {e}")
             return {"success": False, "message": str(e)}
     
     def uninstall(self, srv_name: str, mod_filename: str) -> Dict[str, Any]:
@@ -363,10 +366,10 @@ class ModManager:
         
         try:
             os.remove(mod_path)
-            print(f"[INFO] Mod supprimé: {mod_filename}")
+            logger.info(f"[INFO] Mod supprimé: {mod_filename}")
             return {"success": True, "message": f"Mod {mod_filename} supprimé"}
         except Exception as e:
-            print(f"[ERROR] Erreur suppression mod: {e}")
+            logger.error(f"[ERROR] Erreur suppression mod: {e}")
             return {"success": False, "message": str(e)}
     
     def get_popular_mods(self, loader: str = None, mc_version: str = None, 
@@ -435,7 +438,7 @@ class ModManager:
             
             return mod_categories
         except Exception as e:
-            print(f"[WARN] Erreur récupération catégories: {e}")
+            logger.warning(f"[WARN] Erreur récupération catégories: {e}")
             return []
     
     def get_loaders(self) -> List[Dict[str, Any]]:
@@ -457,7 +460,7 @@ class ModManager:
             
             return minecraft_loaders
         except Exception as e:
-            print(f"[WARN] Erreur récupération loaders: {e}")
+            logger.warning(f"[WARN] Erreur récupération loaders: {e}")
             # Fallback
             return [
                 {"name": "forge", "icon": None},

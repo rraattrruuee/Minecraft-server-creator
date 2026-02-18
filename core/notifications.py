@@ -2,12 +2,15 @@ import json
 import os
 import smtplib
 import threading
+import logging
 from collections import deque
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationManager:
@@ -175,10 +178,10 @@ class NotificationManager:
             )
             
             if response.status_code not in [200, 204]:
-                print(f"[NOTIF] Discord erreur: {response.status_code}")
+                logger.info(f"[NOTIF] Discord erreur: {response.status_code}")
                 
         except Exception as e:
-            print(f"[NOTIF] Discord erreur: {e}")
+            logger.info(f"[NOTIF] Discord erreur: {e}")
     
     def _send_email(self, email_config, notification):
         """Envoie une notification par email"""
@@ -245,10 +248,10 @@ Type: {notification['type']}
                 server.login(email_config["smtp_user"], email_config["smtp_password"])
                 server.send_message(msg)
             
-            print(f"[NOTIF] Email envoyé à {email_config['to_emails']}")
+            logger.info(f"[NOTIF] Email envoyé à {email_config['to_emails']}")
             
         except Exception as e:
-            print(f"[NOTIF] Email erreur: {e}")
+            logger.info(f"[NOTIF] Email erreur: {e}")
     
     def get_notifications(self, limit=50, unread_only=False):
         """Récupère les notifications"""

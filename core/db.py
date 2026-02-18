@@ -2,7 +2,10 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.ext.declarative import declared_attr
 import os
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.getenv('MCPANEL_DB', os.path.join(BASE_DIR, 'data', 'mcpanel.db'))
@@ -23,7 +26,7 @@ class User(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(150), unique=True, index=True, nullable=False)
     password_hash = Column(String(512), nullable=False)
-    role = Column(String(50), default='user')
+    role = Column(String(50), default='user', index=True)
     email = Column(String(255), default='')
     last_login = Column(DateTime, nullable=True)
     discord_webhook = Column(String(255), default='')
@@ -47,7 +50,7 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     ts = Column(DateTime, default=func.now(), index=True)
     username = Column(String(150), index=True)
-    action = Column(String(100))
+    action = Column(String(100), index=True)
     details = Column(Text)
 
 
@@ -61,5 +64,5 @@ def get_session():
 
 
 if __name__ == '__main__':
-    print('Initializing DB at', DB_PATH)
+    logger.info(f"Initializing DB at {DB_PATH}")
     init_db()

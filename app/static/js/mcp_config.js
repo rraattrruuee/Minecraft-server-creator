@@ -215,52 +215,119 @@ try {
 }
 
 async function loadDockerConfig() {
-    const section = document.getElementById("docker-config-section");
-    if (!section || !currentServer) return;
+  const section = document.getElementById("docker-config-section");
+  if (!section || !currentServer) return;
 
-    try {
-        const response = await apiFetch(`/api/server/${currentServer}/docker`);
-        const data = await response.json();
-        
-        if (data.status === "success" && data.config && Object.keys(data.config).length > 0 && !data.config.legacy) {
-            section.style.display = "block";
-            const cfg = data.config;
-            document.getElementById("d-port").value = cfg.port || "";
-            document.getElementById("d-ram-max").value = cfg.ram_max || "";
-            document.getElementById("d-ram-min").value = cfg.ram_min || "";
-            document.getElementById("d-cpu").value = cfg.cpu_limit || "";
-        } else {
-            section.style.display = "none";
-        }
-    } catch (e) {
-        console.warn("Docker config load error:", e);
-        section.style.display = "none";
+  try {
+    const response = await apiFetch(`/api/server/${currentServer}/docker`);
+    const data = await response.json();
+
+    if (
+      data.status === "success" &&
+      data.config &&
+      Object.keys(data.config).length > 0 &&
+      !data.config.legacy
+    ) {
+      section.style.display = "block";
+      const cfg = data.config;
+      document.getElementById("d-port").value = cfg.port || "";
+      document.getElementById("d-ram-max").value = cfg.ram_max || "";
+      document.getElementById("d-ram-min").value = cfg.ram_min || "";
+      document.getElementById("d-cpu").value = cfg.cpu_limit || "";
+
+      // Handle permissions
+      const canEdit = data.can_edit;
+      const inputs = section.querySelectorAll("input");
+      const saveBtn = section.querySelector(".btn-primary");
+
+      inputs.forEach((input) => (input.disabled = !canEdit));
+      if (saveBtn) saveBtn.style.display = canEdit ? "block" : "none";
+
+      if (!canEdit) {
+        const hint =
+          section.querySelector(".quota-hint") || document.createElement("p");
+        hint.className = "quota-hint";
+        hint.style.fontSize = "0.8em";
+        hint.style.color = "#ff4757";
+        hint.textContent =
+          "Modification des ressources restreinte par l'administrateur.";
+        if (!section.querySelector(".quota-hint")) section.appendChild(hint);
+      }
+    } else {
+      section.style.display = "none";
     }
+  } catch (e) {
+    console.warn("Docker config load error:", e);
+    section.style.display = "none";
+  }
 }
 
 async function saveDockerConfig() {
-    if (!currentServer) return;
-    
-    const payload = {
-        port: document.getElementById("d-port").value,
-        ram_max: document.getElementById("d-ram-max").value,
-        ram_min: document.getElementById("d-ram-min").value,
-        cpu_limit: document.getElementById("d-cpu").value
-    };
-    
-    try {
-        const response = await apiFetch(`/api/server/${currentServer}/docker`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (data.status === "success") {
-            showToast("Configuration Docker sauvegardée", "success");
-        } else {
-            showToast(data.message || "Erreur sauvegarde", "error");
-        }
-    } catch (e) {
-        showToast("Erreur communication: " + e, "error");
+  if (!currentServer) return;
+
+  const payload = {
+    port: document.getElementById("d-port").value,
+    ram_max: document.getElementById("d-ram-max").value,
+    ram_min: document.getElementById("d-ram-min").value,
+    cpu_limit: document.getElementById("d-cpu").value,
+  };
+
+  try {
+    const response = await apiFetch(`/api/server/${currentServer}/docker`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (data.status === "success") {
+      showToast("Configuration Docker sauvegardée", "success");
+    } else {
+      showToast(data.message || "Erreur sauvegarde", "error");
     }
+  } catch (e) {
+    showToast("Erreur communication: " + e, "error");
+  }
+}
+
+async function loadAdminQuotas() {
+  if (userRole !== "admin") return;
+  const section = document.getElementById("admin-governance-section");
+  if (section) section.style.display = "block";
+
+  try {
+    const response = await apiFetch("/api/admin/quotas");
+    const data = await response.json();
+    if (data.status === "success" && data.quotas.user) {
+      document.getElementById("admin-allow-resource-edit").checked =
+        data.quotas.user.allow_resource_edit || false;
+    }
+  } catch (e) {
+    console.error("Error loading quotas:", e);
+  }
+}
+
+async function saveAdminQuotas() {
+  if (userRole !== "admin") return;
+  const allowed = document.getElementById("admin-allow-resource-edit").checked;
+
+  try {
+    // We fetch current quotas first to avoid overwriting other fields (since our API is simple)
+    const getResp = await apiFetch("/api/admin/quotas");
+    const getData = await getResp.json();
+
+    const userQuota = getData.quotas.user;
+    userQuota.allow_resource_edit = allowed;
+
+    const response = await apiFetch("/api/admin/quotas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: userQuota }),
+    });
+
+    if (response.ok) {
+      showToast("Paramètres de gouvernance mis à jour", "success");
+    }
+  } catch (e) {
+    showToast("Erreur sauvegarde gouvernance", "error");
+  }
 }

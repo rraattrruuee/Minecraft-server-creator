@@ -1,5 +1,8 @@
 import socket
 import struct
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RconClient:
     def __init__(self, host="localhost", port=25575, password=""):
@@ -33,7 +36,8 @@ class RconClient:
         try:
             self.sock.sendall(packet)
             return self._recv()
-        except:
+        except Exception as e:
+            logger.error(f"RCON Send error: {e}")
             return None
     
     def _recv(self):

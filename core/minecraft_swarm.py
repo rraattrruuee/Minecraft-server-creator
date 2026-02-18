@@ -13,49 +13,55 @@ class MinecraftSwarmGenerator:
                               server_port: int, 
                               memory: str = "2G", 
                               server_type: str = "PAPER", 
-                              version: str = "latest") -> Dict[str, Any]:
+                              version: str = "latest",
+                              rcon_password: str = None) -> Dict[str, Any]:
         """
         Generate a Docker Compose dictionary for Docker Swarm deployment.
         """
         
-        # Convert memory string (e.g. 2G) to bytes or keep as is for Docker
-        # Docker compose uses '2G'.
-        
         service_name = f"mc-{server_name}"
         
-        # Define volume strategy
-        volumes = []
-        volume_config = {}
-        
-        if self.nfs_server and self.nfs_path:
-            # Connect to NFS
-            vol_name = f"data-{server_name}"
-            volumes.append(f"{vol_name}:/data")
-            volume_config[vol_name] = {
-                "driver": "local",
-                "driver_opts": {
-                    "type": "nfs",
-                    "o": f"addr={self.nfs_server},rw",
-                    "device": f":{self.nfs_path}/{server_name}"
-                }
-            }
-        else:
-            # Fallback to local volume (pinned to node?) or let Swarm handle it (data might be lost if container moves)
-            # For "super complet", we strongly suggest NFS or similar.
-            volumes.append(f"mc-data-{server_name}:/data")
-
+        # Secrets
+        service_secrets = []
+        secrets_config = {}
         environment = {
             "EULA": "TRUE",
             "TYPE": server_type.upper(),
             "VERSION": version,
             "MEMORY": memory,
-            "ENABLE_PROMETHEUS_EXPORTER": "true", # Only works if plugin is installed or image supports it
-            # Optimization flags
-            "JVM_DD_OPTS": "java.util.logging.manager=org.apache.logging.log4j.jul.LogManager",  # Log4j fix/optimization
+            "ENABLE_PROMETHEUS_EXPORTER": "true",
             "USE_AIKAR_FLAGS": "true"
         }
+
+        if rcon_password:
+            secret_id = f"mc_secret_{server_name}_rcon"
+            service_secrets.append({
+                "source": secret_id,
+                "target": "rcon_password"
+            })
+            secrets_config[secret_id] = {"external": True}
+            environment["RCON_PASSWORD_FILE"] = "/run/secrets/rcon_password"
+
+        # Define volume strategy
+        volumes = []
+        volume_config = {}
         
-        # Deploy config
+        if self.nfs_server and self.nfs_path:
+            # NFS Volume (Shared across swarm nodes)
+            vol_name = f"mc_data_{server_name}"
+            volumes.append(f"{vol_name}:/data")
+            volume_config[vol_name] = {
+                "driver": "local",
+                "driver_opts": {
+                    "type": "nfs",
+                    "o": f"addr={self.nfs_server},rw,nfsvers=4,nolock,soft",
+                    "device": f":{os.path.join(self.nfs_path, server_name)}"
+                }
+            }
+        else:
+            # Local Volume (Bind mount - only works if node is sticky)
+            # Warning: Not recommended for multi-node swarm without NFS/Gluster
+            volumes.append("./data:/data")
         deploy = {
             "replicas": 1,
             "restart_policy": {
@@ -102,6 +108,9 @@ class MinecraftSwarmGenerator:
         
         if volume_config:
             stack["volumes"] = volume_config
+        
+        if secrets_config:
+            stack["secrets"] = secrets_config
             
         return stack
 

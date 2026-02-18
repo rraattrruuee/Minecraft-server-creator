@@ -4,8 +4,10 @@ from core.docker_installer import is_docker_installed, install_docker_async
 import subprocess
 import os
 import json
+import logging
 
 app_docker = Blueprint('docker_bp', __name__)
+logger = logging.getLogger(__name__)
 
 @app_docker.route('/docker-dashboard')
 @login_required

@@ -248,6 +248,8 @@ async function modifyPlayerStat(playerName, stat, amount) {
  * URLs des textures Minecraft avec fallbacks multiples (sources fiables 2024)
  */
 const TEXTURE_SOURCES = [
+  // Source 0: Local Assets (Priorité maximale)
+  (id) => `/static/textures/items/${id.replace("minecraft:", "")}.png`,
   // Source 1: MinecraftItems API - Direct CDN
   (id) =>
     `https://minecraftitemids.com/item/32/${id.replace("minecraft:", "")}.png`,

@@ -1,5 +1,6 @@
 import time
 from typing import Dict, Any
+from core.utils import parse_size_to_gb
 
 class BillingManager:
     """
@@ -21,7 +22,7 @@ class BillingManager:
         
         # Ram
         ram_str = str(server_config.get("ram_max", "2048M"))
-        ram_gb = self._parse_ram_to_gb(ram_str)
+        ram_gb = parse_size_to_gb(ram_str)
         
         # CPU (Simulé, car souvent pas défini strictement)
         cpu_cores = 1 if ram_gb < 4 else 2
@@ -41,11 +42,3 @@ class BillingManager:
             "monthly": round(hourly_cost * 730, 2),
             "currency": "EUR"
         }
-
-    def _parse_ram_to_gb(self, ram_str: str) -> float:
-        ram_str = ram_str.upper()
-        if ram_str.endswith("G") or ram_str.endswith("GB"):
-            return float(ram_str.replace("GB", "").replace("G", ""))
-        if ram_str.endswith("M") or ram_str.endswith("MB"):
-            return float(ram_str.replace("MB", "").replace("M", "")) / 1024.0
-        return 2.0

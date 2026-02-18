@@ -1606,6 +1606,27 @@
             />
           </div>
           <div class="form-group">
+            <label>Port du serveur</label>
+            <div class="input-with-button">
+              <input
+                type="number"
+                id="server-port-input"
+                placeholder="25565"
+                class="input-large"
+                min="1024"
+                max="65535"
+              />
+              <button
+                type="button"
+                class="btn-secondary"
+                onclick="suggestPort()"
+                title="Suggérer un port libre"
+              >
+                <i class="fas fa-magic"></i>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
             <label>Version Minecraft</label>
             <select id="server-version" required class="select-large"></select>
           </div>
@@ -2285,6 +2306,30 @@
                   Sauvegarder
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- Admin: Governance -->
+          <div
+            id="admin-governance-section"
+            style="
+              display: none;
+              border-top: 1px solid rgba(255, 255, 255, 0.1);
+              margin-top: 20px;
+              padding-top: 20px;
+            "
+          >
+            <label><i class="fas fa-gavel"></i> Gouvernance (Admin)</label>
+            <div class="form-group-checkbox" style="margin-top: 10px">
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  id="admin-allow-resource-edit"
+                  onchange="saveAdminQuotas()"
+                />
+                <span class="slider round"></span>
+              </label>
+              <span>Autoriser les utilisateurs à modifier RAM/CPU/Ports</span>
             </div>
           </div>
         </div>

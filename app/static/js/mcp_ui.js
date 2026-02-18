@@ -45,6 +45,7 @@ function openSettings() {
   if (modal) {
     modal.style.display = "block";
     if (typeof loadNotificationConfig === "function") loadNotificationConfig();
+    if (typeof loadAdminQuotas === "function") loadAdminQuotas();
   }
 }
 

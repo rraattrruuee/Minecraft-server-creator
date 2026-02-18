@@ -3,7 +3,10 @@ import os
 import shutil
 import threading
 import zipfile
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -11,7 +14,7 @@ try:
     HAS_APSCHEDULER = True
 except ImportError:
     HAS_APSCHEDULER = False
-    print("[SCHEDULER] APScheduler non installé - sauvegardes planifiées désactivées")
+    logger.warning("[SCHEDULER] APScheduler non installé - sauvegardes planifiées désactivées")
 
 
 class BackupScheduler:
@@ -28,8 +31,23 @@ class BackupScheduler:
             self.scheduler = BackgroundScheduler()
             self.scheduler.start()
             self._load_schedules()
-            print("[SCHEDULER] Planificateur de sauvegardes initialisé")
+            self._setup_maintenance_jobs()
+            logger.info("[SCHEDULER] Planificateur de sauvegardes et maintenance initialisé")
     
+    def _setup_maintenance_jobs(self):
+        """Configure les tâches de maintenance récurrentes"""
+        try:
+            # Nettoyage Docker hebdomadaire (Dimanche à 4h mat)
+            self.scheduler.add_job(
+                func=self.srv_mgr.docker_prune,
+                trigger=CronTrigger(day_of_week='sun', hour=4, minute=0),
+                id='system_docker_prune',
+                replace_existing=True
+            )
+            logger.info("[SCHEDULER] Tâche de maintenance Docker planifiée (tous les dimanches à 4h)")
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Erreur planification maintenance: {e}")
+
     def _load_schedules(self):
         """Charge et applique les schedules sauvegardés"""
         if not os.path.exists(self.config_file):
@@ -43,7 +61,7 @@ class BackupScheduler:
                 if config.get("enabled", False):
                     self._add_job(server_name, config)
         except Exception as e:
-            print(f"[SCHEDULER] Erreur chargement schedules: {e}")
+            logger.error(f"[SCHEDULER] Erreur chargement schedules: {e}", exc_info=True)
     
     def _save_schedules(self, schedules):
         """Sauvegarde les schedules"""
@@ -57,7 +75,8 @@ class BackupScheduler:
         try:
             with open(self.config_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Erreur lecture config_file: {e}")
             return {}
     
     def _add_job(self, server_name, config):
@@ -105,11 +124,11 @@ class BackupScheduler:
             )
             
             self.jobs[server_name] = job.id
-            print(f"[SCHEDULER] Backup programmé pour {server_name}: {schedule_type}")
+            logger.info(f"[SCHEDULER] Backup programmé pour {server_name}: {schedule_type}")
             return True
             
         except Exception as e:
-            print(f"[SCHEDULER] Erreur ajout job {server_name}: {e}")
+            logger.error(f"[SCHEDULER] Erreur ajout job {server_name}: {e}")
             return False
     
     def set_schedule(self, server_name, config):
@@ -204,11 +223,11 @@ class BackupScheduler:
                 aws_secret_access_key=s3_secret
             )
             filename = os.path.basename(filepath)
-            print(f"[BACKUP] Uploading {filename} to S3...")
+            logger.info(f"Uploading {filename} to S3...")
             s3.upload_file(filepath, s3_bucket, filename)
-            print("[BACKUP] Upload S3 success")
+            logger.info("Upload S3 success")
         except Exception as e:
-            print(f"[BACKUP] S3 upload failed: {e}")
+            logger.error(f"S3 upload failed: {e}")
 
     def _verify_backup_integrity(self, zip_path):
         """Vérifie que le zip est valide"""
@@ -216,24 +235,24 @@ class BackupScheduler:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 bad_file = zip_ref.testzip()
                 if bad_file:
-                    print(f"[BACKUP] Intégrité corrompue: {bad_file}")
+                    logger.info(f"Intégrité corrompue: {bad_file}")
                     return False
-            print(f"[BACKUP] Intégrité ZIP validée: {zip_path}")
+            logger.info(f"Intégrité ZIP validée: {zip_path}")
             return True
         except Exception as e:
-            print(f"[BACKUP] Erreur vérification ZIP: {e}")
+            logger.info(f"Erreur vérification ZIP: {e}")
             return False
 
     def _execute_backup(self, server_name, config):
         """Exécute une sauvegarde planifiée"""
-        print(f"[SCHEDULER] Exécution backup planifié: {server_name}")
+        logger.info(f"Exécution backup planifié: {server_name}")
         
         try:
             # Créer le backup
             result = self.srv_mgr.backup_server(server_name)
             
             if not result:
-                print(f"[SCHEDULER] Échec backup {server_name}")
+                logger.info(f"Échec backup {server_name}")
                 return
             
             backup_path = result.get("path", "")
@@ -247,7 +266,7 @@ class BackupScheduler:
                         if self._verify_backup_integrity(zip_path):
                             backup_path = zip_path 
                         else:
-                            print("[SCHEDULER] Backup corrompu supprimé des candidats à l'upload")
+                            logger.info("Backup corrompu supprimé des candidats à l'upload")
             
             # S3 Upload
             if backup_path and os.path.exists(backup_path):
@@ -261,10 +280,10 @@ class BackupScheduler:
             if config.get("notify", True):
                 self._notify_backup_complete(server_name, result)
             
-            print(f"[SCHEDULER] Backup {server_name} terminé avec succès")
+            logger.info(f"Backup {server_name} terminé avec succès")
             
         except Exception as e:
-            print(f"[SCHEDULER] Erreur backup {server_name}: {e}")
+            logger.info(f"Erreur backup {server_name}: {e}")
     
     def _compress_backup(self, backup_path):
         """Compresse un dossier de backup en zip"""
@@ -279,10 +298,10 @@ class BackupScheduler:
             
             # Supprimer le dossier original
             shutil.rmtree(backup_path)
-            print(f"[SCHEDULER] Backup compressé: {zip_path}")
+            logger.info(f"Backup compressé: {zip_path}")
             return zip_path
         except Exception as e:
-            print(f"[SCHEDULER] Erreur compression: {e}")
+            logger.info(f"Erreur compression: {e}")
             return None
     
     def _rotate_backups(self, server_name, retention):
@@ -311,10 +330,10 @@ class BackupScheduler:
                     shutil.rmtree(path)
                 else:
                     os.remove(path)
-                print(f"[SCHEDULER] Ancien backup supprimé: {os.path.basename(path)}")
+                logger.info(f"Ancien backup supprimé: {os.path.basename(path)}")
                 
         except Exception as e:
-            print(f"[SCHEDULER] Erreur rotation: {e}")
+            logger.error(f"Erreur rotation: {e}")
     
     def _notify_backup_complete(self, server_name, result):
         """Envoie une notification de backup terminé"""
@@ -335,4 +354,4 @@ class BackupScheduler:
         """Arrête le scheduler proprement"""
         if self.scheduler:
             self.scheduler.shutdown(wait=False)
-            print("[SCHEDULER] Planificateur arrêté")
+            logger.info("Planificateur arrêté")

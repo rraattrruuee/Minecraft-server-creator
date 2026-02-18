@@ -25,29 +25,45 @@ class SwarmServiceGenerator:
         secrets_config = {}
         service_secrets = []
         
+        # Mappage des secrets aux fichiers d'environnement supportés par itzg/minecraft-server
+        # https://github.com/itzg/docker-minecraft-server/blob/master/README.md#using-secrets
+        secret_env_map = {
+            "rcon_password": "RCON_PASSWORD_FILE",
+            "mysql_password": "MYSQL_PASSWORD_FILE",
+            "seed": "SEED_FILE",
+            "discord_webhook": "DISCORD_WEBHOOK_URL_FILE"
+        }
+        
+        env_vars = {
+            "EULA": "TRUE",
+            "TYPE": config.get("type", "PAPER").upper(),
+            "VERSION": config.get("version", "latest"),
+            "MEMORY": config.get("memory", "2G"),
+            "TZ": "Europe/Paris"
+        }
+        
         for key, value in secrets.items():
             secret_name = f"{self.secrets_prefix}{server_name}_{key}"
             secrets_config[secret_name] = {
-                "external": True # On suppose qu'ils sont créés via SwarmDeployer.create_secret
+                "external": True
             }
             service_secrets.append({
                 "source": secret_name,
                 "target": key 
             })
+            
+            # Si le secret est connu comme supporté par file, on l'ajoute à l'env
+            env_key = secret_env_map.get(key.lower())
+            if env_key:
+                env_vars[env_key] = f"/run/secrets/{key}"
+            else:
+                # Sinon on peut l'injecter via un entrypoint ou juste le laisser dispo en file
+                pass
 
         # 2. Définition du service
         service_def = {
             "image": config.get("image", "itzg/minecraft-server"),
-            "environment": {
-                "EULA": "TRUE",
-                "TYPE": config.get("type", "PAPER"),
-                "VERSION": config.get("version", "latest"),
-                "MEMORY": config.get("memory", "2G"),
-                # Utilisation des secrets via des fichiers montés ou env vars specifiques aux images supportant les secrets
-                # L'image itzg/minecraft-server supporte les fichiers secrets pour certaines vars
-                # Sinon on peut utiliser un entrypoint custom.
-                "RCON_PASSWORD_FILE": f"/run/secrets/rcon_password" if "rcon_password" in secrets else None
-            },
+            "environment": env_vars,
             "ports": [
                 f"{config.get('port', 25565)}:25565"
             ],
@@ -63,9 +79,9 @@ class SwarmServiceGenerator:
                     }
                 },
                 "labels": {
-                     "type": "minecraft-server",
-                     "server_name": server_name,
-                     "network": network_name
+                     "com.mcpanel.type": "minecraft-server",
+                     "com.mcpanel.server": server_name,
+                     "com.mcpanel.network": network_name
                 }
             },
             "volumes": [
@@ -73,8 +89,6 @@ class SwarmServiceGenerator:
             ]
         }
         
-        # Clean None values
-        service_def["environment"] = {k: v for k, v in service_def["environment"].items() if v is not None}
         if service_secrets:
             service_def["secrets"] = service_secrets
 
