@@ -11,6 +11,7 @@ from argon2 import PasswordHasher
 import pyotp
 from sqlalchemy.exc import IntegrityError
 from .db import get_session, init_db, User, AuditLog
+import hashlib
 
 # Use Argon2 for new hashes
 ph = PasswordHasher()
@@ -215,6 +216,12 @@ class AuthManager:
                 if not verified:
                     self._log_audit(username, "LOGIN_FAILED", "bad password")
                     self._record_failed_login(username)
+                    # If lock was just applied, return locked message for this attempt
+                    lock_until_now = self._get_lock_until(username)
+                    if lock_until_now and datetime.now() < lock_until_now:
+                        remaining = int((lock_until_now - datetime.now()).total_seconds())
+                        mins = max(1, remaining // 60)
+                        return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                     return None, "Identifiants invalides."
 
                 # Enforce MFA for Admin
@@ -237,6 +244,11 @@ class AuthManager:
                         if not totp.verify(otp, valid_window=1):
                             self._log_audit(username, "LOGIN_FAILED", "bad 2fa code")
                             self._record_failed_login(username)
+                            lock_until_now = self._get_lock_until(username)
+                            if lock_until_now and datetime.now() < lock_until_now:
+                                remaining = int((lock_until_now - datetime.now()).total_seconds())
+                                mins = max(1, remaining // 60)
+                                return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                             return None, "Code 2FA invalide"
                     except:
                         return None, "Code 2FA invalide"
@@ -280,6 +292,11 @@ class AuthManager:
             if username not in users:
                 check_password_hash('pbkdf2:sha256:1000$dummy$dummy', 'dummy')
                 self._record_failed_login(username)
+                lock_until_now = self._get_lock_until(username)
+                if lock_until_now and datetime.now() < lock_until_now:
+                    remaining = int((lock_until_now - datetime.now()).total_seconds())
+                    mins = max(1, remaining // 60)
+                    return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                 return None, "Identifiants invalides."
 
             user = users[username]
@@ -288,6 +305,11 @@ class AuthManager:
                 if not check_password_hash(stored_hash, password):
                     self._log_audit(username, "LOGIN_FAILED", "bad password")
                     self._record_failed_login(username)
+                    lock_until_now = self._get_lock_until(username)
+                    if lock_until_now and datetime.now() < lock_until_now:
+                        remaining = int((lock_until_now - datetime.now()).total_seconds())
+                        mins = max(1, remaining // 60)
+                        return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                     return None, "Identifiants invalides."
                 # migrate into DB
                 try:
@@ -311,6 +333,11 @@ class AuthManager:
                 else:
                     self._log_audit(username, "LOGIN_FAILED", "bad password (legacy)")
                     self._record_failed_login(username)
+                    lock_until_now = self._get_lock_until(username)
+                    if lock_until_now and datetime.now() < lock_until_now:
+                        remaining = int((lock_until_now - datetime.now()).total_seconds())
+                        mins = max(1, remaining // 60)
+                        return None, f"Compte verrouillé temporairement, réessayez dans {mins} minutes."
                     return None, "Identifiants invalides."
 
             # If migrated, return user data
@@ -630,6 +657,152 @@ class AuthManager:
             return self._check_legacy_hash(password, stored_hash)
         finally:
             session.close()
+
+    # --- Legacy / file-based user helpers ---
+    def _load_users(self):
+        """Load legacy/file-based users from `data/users.json` (fallback for migrations).
+
+        Returns a dict mapping username -> userinfo. Never raises.
+        """
+        try:
+            if os.path.exists(self.users_file):
+                with open(self.users_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+        except Exception:
+            pass
+        return {}
+
+    def user_exists(self, username: str) -> bool:
+        """Return True if a user exists in DB or in legacy users file."""
+        if not username:
+            return False
+        session = get_session()
+        try:
+            u = session.query(User).filter(User.username == username).first()
+            if u:
+                return True
+        finally:
+            session.close()
+        users = self._load_users()
+        return username in users
+
+    def _get_lock_until(self, username):
+        """Return a datetime when the account is locked until (or None)."""
+        if not username:
+            return None
+        session = get_session()
+        try:
+            u = session.query(User).filter(User.username == username).first()
+            if u:
+                return getattr(u, 'locked_until', None)
+        finally:
+            session.close()
+
+        # In-memory fallback (legacy/file users)
+        entry = self.failed_logins.get(username)
+        if entry:
+            return entry.get('locked_until')
+        return None
+
+    def _record_failed_login(self, username):
+        """Record a failed login attempt and apply lockout policy when needed.
+
+        - Uses DB-backed counters when user exists in DB.
+        - Falls back to in-memory counters for file-based users.
+        """
+        if not username:
+            return
+        session = get_session()
+        try:
+            u = session.query(User).filter(User.username == username).first()
+            if u:
+                u.failed_attempts = (u.failed_attempts or 0) + 1
+                u.last_failed_at = datetime.now()
+                # lock after 6th failed attempt (5 allowed retries)
+                if u.failed_attempts > 5:
+                    # simple backoff: 15 minutes, doubling for each extra block up to 24h
+                    minutes = min(15 * (2 ** (max(0, u.failed_attempts - 6))), 24 * 60)
+                    u.locked_until = datetime.now() + timedelta(minutes=minutes)
+                    self._log_audit(username, "ACCOUNT_LOCKED", f"failed_attempts={u.failed_attempts}")
+                session.add(u)
+                session.commit()
+                return
+        except Exception:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+        # Fallback for legacy/file users: keep counters in-memory
+        rec = self.failed_logins.get(username, {'count': 0, 'locked_until': None, 'last_failed': None})
+        rec['count'] = rec.get('count', 0) + 1
+        rec['last_failed'] = datetime.now()
+        if rec['count'] > 5:
+            rec['locked_until'] = datetime.now() + timedelta(minutes=15)
+        self.failed_logins[username] = rec
+
+    def _clear_failed_logins(self, username):
+        """Clear failure counters / lock for a user (DB preferred)."""
+        if not username:
+            return
+        session = get_session()
+        try:
+            u = session.query(User).filter(User.username == username).first()
+            if u:
+                u.failed_attempts = 0
+                u.last_failed_at = None
+                u.locked_until = None
+                session.add(u)
+                session.commit()
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+        if username in self.failed_logins:
+            try:
+                del self.failed_logins[username]
+            except Exception:
+                pass
+
+    def _check_legacy_hash(self, password, stored_hash) -> bool:
+        """Verify old/legacy hash formats.
+
+        Supported forms (best-effort):
+        - 'legacy:<hex>' meaning sha256(legacy_salt + password)
+        - plain sha256/sha1 hex of (legacy_salt + password) or plain password
+        """
+        if not stored_hash:
+            return False
+        try:
+            # explicit prefix
+            if isinstance(stored_hash, str) and stored_hash.startswith('legacy:'):
+                expected = stored_hash.split(':', 1)[1]
+                got = hashlib.sha256((self.legacy_salt + password).encode('utf-8')).hexdigest()
+                return got == expected
+
+            # salted sha256
+            got = hashlib.sha256((self.legacy_salt + password).encode('utf-8')).hexdigest()
+            if got == stored_hash:
+                return True
+            # salted sha1
+            got = hashlib.sha1((self.legacy_salt + password).encode('utf-8')).hexdigest()
+            if got == stored_hash:
+                return True
+            # unsalted sha256 fallback
+            if hashlib.sha256(password.encode('utf-8')).hexdigest() == stored_hash:
+                return True
+        except Exception:
+            return False
+        return False
 
     # --- Password reset flow ---
     def request_password_reset(self, username_or_email):

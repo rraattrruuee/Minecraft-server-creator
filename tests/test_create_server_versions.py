@@ -49,3 +49,39 @@ def test_create_server_with_fabric_loader(tmp_path, monkeypatch):
     server_path = os.path.join(base, 'testfabric')
     assert os.path.exists(os.path.join(server_path, 'server.jar'))
     assert called['args'][2] == '0.18.3'
+
+
+def test_create_server_allows_reuse_of_stale_directory(tmp_path):
+    base = str(tmp_path)
+    mgr = ServerManager(base_dir=base)
+
+    # create a stale directory that does NOT contain server markers
+    stale_dir = os.path.join(base, 'stale_server')
+    os.makedirs(stale_dir, exist_ok=True)
+    # add an unrelated file
+    with open(os.path.join(stale_dir, 'README.txt'), 'w') as f:
+        f.write('not a server')
+
+    # should not raise and should create manager_config.json
+    mgr.create_server('stale_server', '1.20.1', owner='bob')
+    cfg_path = os.path.join(stale_dir, 'manager_config.json')
+    assert os.path.exists(cfg_path)
+
+
+def test_create_server_rejects_existing_server_dir(tmp_path):
+    base = str(tmp_path)
+    mgr = ServerManager(base_dir=base)
+
+    # create a directory that looks like an existing server
+    srv = os.path.join(base, 'exists_server')
+    os.makedirs(srv, exist_ok=True)
+    with open(os.path.join(srv, 'manager_config.json'), 'w') as f:
+        f.write('{}')
+
+    try:
+        mgr.create_server('exists_server', '1.20.1', owner='bob')
+        raised = False
+    except Exception as e:
+        raised = True
+        assert 'Ce nom existe déjà' in str(e)
+    assert raised

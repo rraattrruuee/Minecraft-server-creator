@@ -1,5 +1,5 @@
 # Utilisation de Python Slim pour la légèreté
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 # Eviter les fichiers .pyc
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -11,6 +11,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     docker.io \
     iputils-ping \
+    build-essential \
+    libjpeg-dev \
+    zlib1g-dev \
+    libfreetype6-dev \
+    liblcms2-dev \
+    libwebp-dev \
+    tcl-dev \
+    tk-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Création du dossier de travail
@@ -23,7 +31,9 @@ COPY requirements.txt .
 # On modifie PyQt6/WebEngine pour qu'ils ne soient pas installés dans le conteneur serveur (headless)
 # pour économiser de l'espace, sauf si spécifiquement demandé.
 # Ici, on installe tout sauf l'interface graphique lourde qui tournera côté client.
-RUN sed -i '/PyQt6/d' requirements.txt && pip install --no-cache-dir -r requirements.txt
+RUN sed -i '/PyQt6/d' requirements.txt \
+ && python -m pip install --upgrade pip setuptools wheel \
+ && pip install --prefer-binary --no-cache-dir -r requirements.txt
 
 # Copie du code source
 COPY . .
