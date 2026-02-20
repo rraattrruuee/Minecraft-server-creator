@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     docker.io \
+    docker-compose-plugin \
     iputils-ping \
     build-essential \
     libjpeg-dev \

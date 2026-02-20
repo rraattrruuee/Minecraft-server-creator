@@ -58,5 +58,3 @@ Voici les 10 principes et idées clés pour moderniser la gestion des serveurs e
 **Action**: Utiliser exclusivement l'image maintenue `itzg/minecraft-server` qui gère tous les types (Paper, Forge, Fabric...) via des variables d'environnement simples.
 
 ---
-
-**État actuel**: Implémentation immediate des points 1, 2, 6 et 10 dans le code actuel.

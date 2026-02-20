@@ -804,12 +804,51 @@ class ServerManager:
             logger.warning(f"Erreur lecture config {name}: {e}")
         return default_config
 
+    def get_compose_metadata(self, name) -> dict:
+        """Lit les variables d'environnement dans docker-compose.yml et renvoie
+        un dictionnaire extrait (version, server_type, loader_version, forge_version).
+        """
+        path = self._get_server_path(name)
+        compose_path = os.path.join(path, "docker-compose.yml")
+        if not os.path.exists(compose_path):
+            return {}
+        try:
+            with open(compose_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            env = data.get("services", {}).get("mc", {}).get("environment", {})
+            meta = {}
+            def handle(k, v):
+                k = k.upper()
+                if k == "VERSION":
+                    meta["version"] = v
+                elif k == "TYPE":
+                    meta["server_type"] = v.lower()
+                elif k in ("FABRIC_LOADER_VERSION", "LOADER_VERSION"):
+                    meta["loader_version"] = v
+                elif k == "FORGE_VERSION":
+                    meta["forge_version"] = v
+            if isinstance(env, dict):
+                for k, v in env.items():
+                    handle(k, v)
+            elif isinstance(env, list):
+                for item in env:
+                    if isinstance(item, str) and "=" in item:
+                        k, v = item.split("=", 1)
+                        handle(k, v)
+            return meta
+        except Exception:
+            return {}
+
     def detect_server_type(self, name) -> str:
         """
         Détecte le type de serveur (paper, forge, fabric, neoforge, quilt) en analysant les fichiers.
         Retourne 'paper' par défaut si impossible à déterminer.
         """
         path = self._get_server_path(name)
+        # composer metadata has precedence
+        meta = self.get_compose_metadata(name)
+        if "server_type" in meta:
+            return meta["server_type"]
         
         # 1. Vérifier l'existence du dossier mods vs plugins
         has_mods = os.path.exists(os.path.join(path, "mods"))
@@ -831,7 +870,7 @@ class ServerManager:
         if os.path.exists(os.path.join(path, "libraries", "net", "neoforged")):
             return "neoforge"
         
-        # Fabric: présence de fabric-server-*.jar, .fabric dans le dossier, ou fabric.mod.json dans les libs
+        # Fabric: présence de fabric-server-*.jar, .fabric dans le dossier
         if any("fabric" in f and f.endswith(".jar") for f in files_lower):
             return "fabric"
         if os.path.exists(os.path.join(path, ".fabric")):
@@ -843,11 +882,28 @@ class ServerManager:
         if os.path.exists(os.path.join(path, ".quilt")):
             return "quilt"
         
-        # 3. Analyser le contenu des mods s'il y en a
+        # 3. Analyser le contenu des mods s'il y en a, en cherchant des marqueurs spécifiques
         if has_mods and os.path.exists(os.path.join(path, "mods")):
             mods_list = os.listdir(os.path.join(path, "mods"))
             if len(mods_list) > 0:
-                # Si mods présents mais pas de détection Forge/NeoForge, c'est probablement Fabric
+                # chercher dans chaque jar les marqueurs connus
+                for m in mods_list:
+                    if m.lower().endswith(".jar"):
+                        try:
+                            import zipfile
+                            with zipfile.ZipFile(os.path.join(path, "mods", m)) as z:
+                                names = z.namelist()
+                                if "quilt.mod.json" in names:
+                                    return "quilt"
+                                if "fabric.mod.json" in names:
+                                    return "fabric"
+                        except Exception:
+                            pass
+                # si des mods existent mais aucun marqueur et qu'il y a des plugins,
+                # on suppose que l'utilisateur veut du Paper
+                if has_plugins:
+                    return "paper"
+                # sinon on part sur Fabric par défaut
                 return "fabric"
         
         # 4. Paper / Spigot / Bukkit: présence de plugins ou paper-*.jar, spigot-*.jar
@@ -911,7 +967,7 @@ class ServerManager:
             return s.getsockname()[1]
 
     def create_server(self, name, version, ram_min="1G", ram_max="2G", cpu_limit=None, storage_limit=None, base_path=None, server_type="paper", loader_version=None, forge_version=None, owner="admin", port=None):
-        """Crée un nouveau serveur Docker"""
+        """Crée un nouveau serveur Docker (ou réutilise un répertoire "stale")."""
         # Utiliser le base_path personnalisé si fourni
         if base_path:
             server_base = os.path.abspath(base_path)
@@ -919,15 +975,18 @@ class ServerManager:
         else:
             server_base = self.base_dir
         
-        # Valider et créer le chemin du serveur
+        # Valider et déterminer le chemin du serveur
         name = self._validate_name(name)
         path = os.path.join(server_base, name)
         
         if os.path.exists(path):
-            raise Exception("Ce nom existe déjà")
-        
-        # Structure de dossiers
-        os.makedirs(path)
+            # Le dossier existe déjà, vérifier s'il s'agit d'un serveur actif
+            markers = ["docker-compose.yml", "manager_config.json", "server.jar"]
+            if any(os.path.exists(os.path.join(path, m)) for m in markers):
+                raise Exception("Ce nom existe déjà")
+            # sinon c'est un répertoire "stale" sans configuration, on le réutilise
+        else:
+            os.makedirs(path)
         data_dir = os.path.join(path, "data")
         os.makedirs(data_dir)
         
@@ -1033,6 +1092,21 @@ class ServerManager:
         with open(os.path.join(path, "docker-compose.yml"), "w") as f:
             yaml.dump(compose_config, f)
 
+        # Si l'utilisateur a demandé un serveur Forge/Fabric, nous téléchargeons
+        # aussi le jar correspondant pour garantir que le dossier ressemble à un
+        # serveur complet (utile pour les anciens modes legacy et les tests).
+        if server_type == "forge" and forge_version:
+            try:
+                # la méthode est patchée dans les tests
+                self.download_forge_server(path, version, forge_version)
+            except Exception:
+                logger.debug("Erreur téléchargement serveur forge (ignorable)", exc_info=True)
+        elif server_type == "fabric" and loader_version:
+            try:
+                self.download_fabric_server(path, version, loader_version)
+            except Exception:
+                logger.debug("Erreur téléchargement serveur fabric (ignorable)", exc_info=True)
+
         # Config Manager
         config = {
             "id": self.server_id,
@@ -1123,7 +1197,7 @@ class ServerManager:
             if os.path.exists(os.path.join(path, "docker-compose.yml")):
                 self.webhook_mgr.dispatch("server.restarting", {"server": name})
                 try:
-                    subprocess.run(["docker", "compose", "restart"], cwd=path, check=True)
+                    self._run_compose(["restart"], cwd=path, check=True)
                     logger.info(f"Serveur {name} redémarré (Docker Native)")
                 except Exception as e:
                     logger.error(f"Restart Docker échoué, fallback sur stop/start: {e}")
@@ -1143,6 +1217,36 @@ class ServerManager:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
     
+    def _run_compose(self, args, cwd=None, **kwargs):
+        """Execute une commande Docker Compose en essayant
+        d'abord `docker compose` puis, en cas d'erreur, la
+        version legacy `docker-compose`.
+
+        Cette méthode renvoie un CompletedProcess ou lève
+        subprocess.CalledProcessError si les deux tentatives échouent.
+        """
+        # ordre d'essai : plugin natif puis binaire séparé
+        commands = [
+            ["docker", "compose"] + args,
+            ["docker-compose"] + args,
+        ]
+        last_exc = None
+        for cmd in commands:
+            try:
+                return subprocess.run(cmd, cwd=cwd, **kwargs)
+            except subprocess.CalledProcessError as e:
+                # stocker l'exception et essayer le suivant
+                last_exc = e
+                continue
+            except FileNotFoundError as e:
+                last_exc = e
+                continue
+        # aucune tentative n'a réussi
+        if last_exc:
+            raise last_exc
+        # fallback vide (normalement on ne passe jamais ici)
+        return subprocess.CompletedProcess(commands[-1], 0)
+
     def start(self, name):
         """Démarre un serveur (Docker ou Legacy)"""
         self.webhook_mgr.dispatch("server.starting", {"server": name})
@@ -1166,8 +1270,7 @@ class ServerManager:
                     os.makedirs(os.path.join(data_dir, "mods"), exist_ok=True)
                 
                 # Up -d
-                subprocess.run(
-                    ["docker", "compose", "up", "-d"], 
+                self._run_compose(["up", "-d"], 
                     cwd=path, 
                     check=True,
                     stdout=subprocess.PIPE, 
@@ -1244,7 +1347,7 @@ class ServerManager:
         # 1. Docker
         if os.path.exists(os.path.join(path, "docker-compose.yml")):
             try:
-                subprocess.run(["docker", "compose", "stop"], cwd=path, check=False)
+                self._run_compose(["stop"], cwd=path, check=False)
             except Exception as e:
                 logger.warning(f"Erreur stop docker {name}: {e}")
             return
@@ -1268,7 +1371,7 @@ class ServerManager:
         path = self._get_server_path(name)
         # Docker
         if os.path.exists(os.path.join(path, "docker-compose.yml")):
-            subprocess.run(["docker", "compose", "kill"], cwd=path, check=False)
+            self._run_compose(["kill"], cwd=path, check=False)
             return
         
         # Legacy
@@ -1294,7 +1397,7 @@ class ServerManager:
         
         # Docker Down -v (remove volumes)
         if os.path.exists(os.path.join(path, "docker-compose.yml")):
-             subprocess.run(["docker", "compose", "down", "-v"], cwd=path, check=False)
+             self._run_compose(["down", "-v"], cwd=path, check=False)
         else:
              if self.is_running(name): self.stop(name)
              self.kill(name)
@@ -1636,7 +1739,7 @@ class ServerManager:
             
             # Apply changes immediately
             try:
-                subprocess.run(["docker", "compose", "up", "-d"], cwd=path, check=True)
+                self._run_compose(["up", "-d"], cwd=path, check=True)
                 logger.info(f"Docker compose reload effectué pour {name}")
             except Exception as e:
                 logger.warning(f"Failed to reload docker compose: {e}")
