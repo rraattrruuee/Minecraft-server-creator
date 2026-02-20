@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import secrets
 import time
@@ -15,6 +16,7 @@ import hashlib
 
 # Use Argon2 for new hashes
 ph = PasswordHasher()
+logger = logging.getLogger(__name__)
 
 LEGACY_SALT_FILE = ".hash_salt"
 
