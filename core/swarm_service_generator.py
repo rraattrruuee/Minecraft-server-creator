@@ -94,7 +94,7 @@ class SwarmServiceGenerator:
 
         # 3. Assemblage final
         compose = {
-            "version": "3.8",
+            # version field is omitted to avoid deprecation warnings
             "services": {
                 server_name: service_def
             },

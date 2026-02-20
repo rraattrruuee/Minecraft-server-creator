@@ -1022,7 +1022,8 @@ class ServerManager:
 
         # Configuration Docker Compose
         compose_config = {
-            "version": "3.8",
+            # 'version' key is no longer required and triggers a warning in newer
+            # Docker Compose releases; omit it to keep the file clean.
             "services": {
                 "mc": {
                     "image": "itzg/minecraft-server",
@@ -1169,6 +1170,9 @@ class ServerManager:
                 compose["services"]["mc"]["labels"]["com.mcpanel.server"] = new_name
                 
                 with open(compose_path, "w") as f:
+                    compose.pop("version", None)
+                    # remove obsolete version key to avoid warning
+                    compose.pop("version", None)
                     yaml.dump(compose, f)
             except Exception as e:
                 logger.warning(f"Erreur mise à jour compose pour renommage: {e}")
@@ -1235,6 +1239,13 @@ class ServerManager:
             try:
                 return subprocess.run(cmd, cwd=cwd, **kwargs)
             except subprocess.CalledProcessError as e:
+                # si le démon est inacessible, on renvoie un message mieux
+                stderr = getattr(e, 'stderr', b'')
+                text = stderr.decode(errors='ignore') if isinstance(stderr, (bytes, str)) else str(stderr)
+                if 'Cannot connect to the Docker daemon' in text:
+                    raise Exception("Docker daemon inaccessible. "
+                                    "Make sure /var/run/docker.sock is mounted or "
+                                    "that the daemon is running") from e
                 # stocker l'exception et essayer le suivant
                 last_exc = e
                 continue

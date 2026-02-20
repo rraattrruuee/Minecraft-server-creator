@@ -90,7 +90,7 @@ class MinecraftSwarmGenerator:
         }
 
         stack = {
-            "version": "3.8",
+            # omit version to avoid compose deprecation warning
             "services": {
                 service_name: service
             },
