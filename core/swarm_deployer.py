@@ -199,11 +199,58 @@ class SwarmDeployer:
                 for line in n_out.strip().split('\n'):
                     if '|' in line:
                         host, status, role = line.split('|')
-                        nodes.append({'hostname': host, 'status': status, 'role': role})
-                        
+                        node_info = {'hostname': host, 'status': status, 'role': role}
+                        # try to fetch resource info
+                        try:
+                            r_code, r_out, r_err = self.execute_command(f"docker node inspect {host} --format '{{.Description.Resources.NanoCPUs}}|{{.Description.Resources.MemoryBytes}}'")
+                            if r_code == 0 and '|' in r_out:
+                                cpus, mem = r_out.strip().split('|')
+                                # nano cpus -> cores
+                                try:
+                                    cpus_val = int(cpus) / 1e9
+                                    node_info['cpu'] = round(cpus_val, 2)
+                                except Exception:
+                                    node_info['cpu'] = cpus
+                                try:
+                                    mem_val = int(mem) / (1024**2)
+                                    node_info['ram'] = f"{mem_val:.0f}MB"
+                                except Exception:
+                                    node_info['ram'] = mem
+                        except Exception:
+                            pass
+                        nodes.append(node_info)
         return {
             'active': is_active,
             'nodes': nodes,
             'raw_output': out
         }
+
+    def remove_node(self, hostname: str) -> Tuple[bool, str]:
+        """Attempt to remove a node from the swarm by hostname.
+        Returns (success, message).
+        """
+        cmd = f"docker node rm --force {hostname}"
+        code, out, err = self.execute_command(cmd)
+        if code == 0:
+            return True, out
+        else:
+            return False, err or out
+
+    def promote_node(self, hostname: str) -> Tuple[bool, str]:
+        """Promote a worker to manager"""
+        cmd = f"docker node promote {hostname}"
+        code, out, err = self.execute_command(cmd)
+        if code == 0:
+            return True, out
+        else:
+            return False, err or out
+
+    def demote_node(self, hostname: str) -> Tuple[bool, str]:
+        """Demote a manager to worker"""
+        cmd = f"docker node demote {hostname}"
+        code, out, err = self.execute_command(cmd)
+        if code == 0:
+            return True, out
+        else:
+            return False, err or out
 

@@ -19,6 +19,9 @@ function __real_showSection(sectionName) {
     loadNotifications();
   if (sectionName === "dashboard" && typeof loadSystemMetrics === "function")
     loadSystemMetrics();
+  if (sectionName === "docker-dashboard" && typeof loadDocker === "function")
+    loadDocker();
+  if (sectionName === "swarm" && typeof loadSwarm === "function") loadSwarm();
 }
 
 // wrapper used by inline handlers; this will be set on init

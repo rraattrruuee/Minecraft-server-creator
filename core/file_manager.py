@@ -66,6 +66,10 @@ class FileManager:
             
             items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
             return items
+        except FileNotFoundError as e:
+            # common when server directory missing; log at debug level
+            logger.debug(f"[FileManager] List skipped missing server: {e}")
+            return []
         except Exception as e:
             logger.error(f"[FileManager] List Error: {e}")
             return []

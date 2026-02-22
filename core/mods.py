@@ -235,8 +235,38 @@ class ModManager:
             logger.error(f"[ERROR] Erreur récupération versions mod: {e}")
             return []
     
+    def _metadata_path(self, srv_name: str) -> str:
+        """Retourne le chemin du fichier de métadonnées des mods"""
+        server_root = os.path.join(self.base_dir, srv_name)
+        return os.path.join(server_root, "mods_meta.json")
+
+    def _load_metadata(self, srv_name: str) -> Dict[str, Any]:
+        """Charge la méta existante (ou retourne un dict vide)"""
+        path = self._metadata_path(srv_name)
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.warning(f"[WARN] Impossible de lire metadata mods pour {srv_name}: {e}")
+        return {}
+
+    def _save_metadata(self, srv_name: str, meta: Dict[str, Any]):
+        """Écrit le dictionnaire de méta dans le fichier correspondant"""
+        path = self._metadata_path(srv_name)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2)
+        except Exception as e:
+            logger.error(f"[ERROR] Impossible de sauvegarder metadata mods pour {srv_name}: {e}")
+
     def list_installed(self, srv_name: str) -> List[Dict[str, Any]]:
-        """Liste les mods installés sur un serveur"""
+        """Liste les mods installés sur un serveur
+
+        Les informations retournées incluent désormais les éventuels
+        **icon_url** et **url** pour permettre l'affichage du logo et
+        d'un lien vers la page du mod.
+        """
         mods_path = self._get_mods_path(srv_name)
         
         if not os.path.exists(mods_path):
@@ -257,6 +287,19 @@ class ModManager:
                     })
         except Exception as e:
             logger.warning(f"[WARN] Erreur listage mods: {e}")
+        
+        # Merge metadata if available
+        meta = self._load_metadata(srv_name)
+        for m in mods:
+            info = meta.get(m["filename"], {})
+            # copy any known fields (slug, project_id, icon_url, url)
+            if info:
+                m.update({
+                    "project_id": info.get("project_id"),
+                    "slug": info.get("slug"),
+                    "icon_url": info.get("icon_url"),
+                    "url": info.get("url")
+                })
         
         return sorted(mods, key=lambda x: x["name"].lower())
     
@@ -336,7 +379,25 @@ class ModManager:
                         downloaded += len(chunk)
             
             logger.info(f"[INFO] Mod installé: {safe_filename}")
-            
+
+            # --- save metadata for logo/documentation support ---
+            try:
+                details = self.get_mod_details(project_id)
+                slug = details.get("slug")
+                icon = details.get("icon_url")
+                project_url = f"https://modrinth.com/mod/{slug}" if slug else None
+                meta = self._load_metadata(srv_name)
+                meta[safe_filename] = {
+                    "project_id": project_id,
+                    "slug": slug,
+                    "icon_url": icon,
+                    "url": project_url
+                }
+                self._save_metadata(srv_name, meta)
+            except Exception:
+                # ne pas bloquer l'installation si la méta échoue
+                logger.warning(f"[WARN] impossible de sauvegarder metadata pour {safe_filename}")
+
             return {
                 "success": True,
                 "filename": safe_filename,

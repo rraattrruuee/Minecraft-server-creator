@@ -94,21 +94,33 @@
           <span data-i18n="nav.notifications">Notifications</span>
           <span class="badge" id="notif-badge" style="display: none">0</span>
         </button>
-        <a href="/swarm/" class="nav-item">
+        <button
+          class="nav-item admin-only"
+          data-section="swarm"
+          onclick="showSection('swarm')"
+        >
           <i class="fas fa-network-wired"></i>
           <span>Swarm Infra</span>
-        </a>
-        <a href="/docker-dashboard" class="nav-item">
+        </button>
+        <button
+          class="nav-item"
+          data-section="docker-dashboard"
+          onclick="showSection('docker-dashboard')"
+        >
           <i class="fab fa-docker"></i>
           <span>Docker</span>
-        </a>
-        <a href="/marketplace" class="nav-item">
+        </button>
+        <button
+          class="nav-item"
+          data-section="marketplace"
+          onclick="showSection('marketplace')"
+        >
           <i class="fas fa-shopping-bag"></i>
           <span data-i18n="nav.marketplace">Marketplace</span>
-        </a>
+        </button>
         <a
           href="/admin/governance"
-          class="nav-item"
+          class="nav-item admin-only"
           id="admin-gov-link"
           style="display: none"
         >
@@ -156,6 +168,290 @@
     <!-- MAIN CONTENT -->
     <main class="main-content">
       <!-- SECTION: DASHBOARD -->
+      <section id="section-marketplace" class="section">
+        <!-- MARKETPLACE CONTENT -->
+        <div class="row">
+          <div class="col-md-12">
+            <h1 class="mb-4">Marketplace (Modrinth)</h1>
+
+            <div class="card mb-4">
+              <div class="card-body">
+                <div class="input-group">
+                  <input
+                    type="text"
+                    id="marketSearch"
+                    class="form-control"
+                    placeholder="Rechercher des plugins/mods..."
+                    onkeypress="handleEnter(event)"
+                  />
+                  <div class="input-group-append">
+                    <button class="btn btn-primary" onclick="searchMarket()">
+                      Rechercher
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="marketLoading" class="text-center d-none">
+              <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Chargement...</span>
+              </div>
+              <p>Recherche en cours...</p>
+            </div>
+
+            <div id="marketResults" class="row"></div>
+
+            <!-- modal for mod details -->
+            <div class="modal fade" id="modDetailsModal" tabindex="-1">
+              <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title" id="modDetailsTitle"></h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                      <span>&times;</span>
+                    </button>
+                  </div>
+                  <div class="modal-body" id="modDetailsBody">
+                    <div class="loader-small"></div>
+                    Chargement...
+                  </div>
+                  <div class="modal-footer">
+                    <button
+                      type="button"
+                      class="btn btn-secondary"
+                      data-dismiss="modal"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Modals for marketplace -->
+        <div class="modal fade" id="installModal" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">
+                  Installer <span id="installTitle"></span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                  <span>&times;</span>
+                </button>
+              </div>
+              <div class="modal-body">
+                <div class="form-group">
+                  <label for="serverSelect"
+                    >Sélectionner le serveur de destination :</label
+                  >
+                  <select class="form-control" id="serverSelect">
+                    <option value="">Chargement...</option>
+                  </select>
+                </div>
+                <div id="installStatus" class="alert d-none"></div>
+              </div>
+              <div class="modal-footer">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  data-dismiss="modal"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="confirmInstallBtn"
+                >
+                  Confirmer l'installation
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="section-docker-dashboard" class="section">
+        <!-- Docker dashboard inline content -->
+        <div class="container-fluid">
+          <h1 class="mt-4">🐳 Gestion Docker</h1>
+
+          <div
+            class="alert alert-warning"
+            id="docker-warning"
+            style="display: none"
+          >
+            Docker n'est pas détecté sur le système.
+            <button class="btn btn-primary btn-sm" onclick="installDocker()">
+              Installer Docker
+            </button>
+          </div>
+
+          <div id="docker-content" style="display: none">
+            <div class="row mb-4">
+              <div class="col-md-3">
+                <div class="card text-white bg-primary mb-3">
+                  <div class="card-header">Conteneurs MC</div>
+                  <div class="card-body">
+                    <h5 class="card-title display-4" id="docker-count">0</h5>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-9">
+                <div class="card">
+                  <div class="card-header">Actions Globales</div>
+                  <div class="card-body">
+                    <button
+                      class="btn btn-outline-danger"
+                      onclick="pruneDocker()"
+                    >
+                      Nettoyer Images Inutilisées (Prune)
+                    </button>
+                    <button class="btn btn-outline-info" onclick="loadDocker()">
+                      Rafraîchir
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">Conteneurs Minecraft</div>
+              <div class="card-body table-responsive">
+                <table class="table table-hover" id="docker-table">
+                  <thead>
+                    <tr>
+                      <th>Serveur</th>
+                      <th>Status</th>
+                      <th>Image</th>
+                      <th>État</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="section-swarm" class="section">
+        <div class="container-fluid">
+          <h1>Dashboard Infrastructure (Swarm)</h1>
+
+          <div class="row">
+            <div class="col-md-12">
+              <div class="card">
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                  "
+                >
+                  <h2>
+                    <i class="fas fa-server"></i> Gestion des Machines (Noeuds)
+                  </h2>
+                  <button
+                    class="btn btn-primary admin-only"
+                    onclick="showAddNodeModal()"
+                  >
+                    <i class="fas fa-plus"></i> Ajouter une machine
+                  </button>
+                </div>
+                <table
+                  class="table"
+                  style="
+                    width: 100%;
+                    margin-top: 15px;
+                    color: var(--text-color);
+                  "
+                >
+                  <thead>
+                    <tr>
+                      <th>Hostname</th>
+                      <th>Rôle</th>
+                      <th>Statut</th>
+                      <th>CPU/RAM (Estimé)</th>
+                      <th class="admin-only">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="swarm-node-table">
+                    <!-- nodes inserted by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card">
+                <h2>État du Cluster</h2>
+                <p>Status: <span id="swarm-status-text">...</span></p>
+                <h3>Noeuds</h3>
+                <ul id="swarm-nodes-list"></ul>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card admin-only">
+                <h2>Configuration</h2>
+                <form id="swarmConfigForm">
+                  <!-- example fields, could be expanded -->
+                  <div class="form-group">
+                    <label for="swarmMode">Mode</label>
+                    <select
+                      id="swarmMode"
+                      class="form-control"
+                      onchange="toggleSwarmFields()"
+                    >
+                      <option value="local">Local</option>
+                      <option value="remote">Remote (SSH)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="swarmSSHHost">SSH Host</label>
+                    <input type="text" id="swarmSSHHost" class="form-control" />
+                  </div>
+                  <div class="form-group">
+                    <label for="swarmSSHUser">SSH User</label>
+                    <input type="text" id="swarmSSHUser" class="form-control" />
+                  </div>
+                  <div class="form-group">
+                    <label for="swarmSSHKey">SSH Key Path</label>
+                    <input type="text" id="swarmSSHKey" class="form-control" />
+                  </div>
+                  <div class="form-group">
+                    <label for="swarmRegistry">Registry Domain</label>
+                    <input
+                      type="text"
+                      id="swarmRegistry"
+                      class="form-control"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="swarmNfsIp">NFS Server IP</label>
+                    <input type="text" id="swarmNfsIp" class="form-control" />
+                  </div>
+                  <div class="form-group">
+                    <label for="swarmNfsPath">NFS Path</label>
+                    <input type="text" id="swarmNfsPath" class="form-control" />
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="saveSwarmConfig()"
+                  >
+                    Enregistrer
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="section-dashboard" class="section active">
         <div class="section-header">
           <h2><i class="fas fa-th-large"></i> Tableau de bord</h2>
@@ -443,7 +739,7 @@
                 >
               </button>
               <button
-                class="action-btn settings"
+                class="action-btn settings owner-only"
                 onclick="openServerSettings()"
                 data-i18n-title="actions.config"
                 title="Paramètres serveur"
@@ -454,7 +750,7 @@
                 >
               </button>
               <button
-                class="action-btn"
+                class="action-btn owner-only"
                 id="btn-update-server"
                 onclick="manualUpdateServerConfig()"
                 title="Mettre à jour la config"
@@ -463,7 +759,7 @@
                 <span class="action-label">Mettre à jour</span>
               </button>
               <button
-                class="action-btn danger"
+                class="action-btn danger owner-only"
                 onclick="deleteServer()"
                 data-i18n-title="actions.delete"
                 title="Supprimer"
@@ -560,6 +856,10 @@
           <div class="tab-content">
             <!-- Console -->
             <div id="view-console" class="view active">
+              <div
+                id="console-title"
+                style="font-size: 1.2em; margin-bottom: 8px; font-weight: bold"
+              ></div>
               <div class="console-stats">
                 <div class="stat-mini">
                   <i class="fas fa-microchip"></i> <span id="stat-cpu">0%</span>
@@ -2236,26 +2536,6 @@
             </div>
           </div>
 
-          <!-- Fullbright -->
-          <div
-            class="form-group-checkbox"
-            style="
-              margin-bottom: 30px;
-              border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-              padding-bottom: 20px;
-            "
-          >
-            <label class="switch">
-              <input
-                type="checkbox"
-                id="fullbright-toggle-appearance"
-                class="fullbright-toggle"
-              />
-              <span class="slider round"></span>
-            </label>
-            <span>Fullbright (Voir dans le noir)</span>
-          </div>
-
           <!-- Notifications -->
           <div class="form-group">
             <label><i class="fab fa-discord"></i> Notifications Discord</label>
@@ -2357,6 +2637,456 @@
     <div id="toast-container"></div>
 
     <!-- Main loader for modularized MCP scripts (created by refactor) -->
+    <!-- marketplace client logic -->
+    <script>
+      function handleEnter(e) {
+        if (e.key === "Enter") searchMarket();
+      }
+      async function searchMarket() {
+        const query = document.getElementById("marketSearch").value;
+        if (!query) return;
+        document.getElementById("marketResults").innerHTML = "";
+        document.getElementById("marketLoading").classList.remove("d-none");
+        try {
+          const res = await fetch(
+            `/api/market/search?q=${encodeURIComponent(query)}`,
+          );
+          const data = await res.json();
+          document.getElementById("marketLoading").classList.add("d-none");
+          if (data.status === "success" && data.results.length > 0) {
+            renderResults(data.results);
+          } else {
+            document.getElementById("marketResults").innerHTML =
+              '<div class="col-12 text-center"><p>Aucun résultat trouvé.</p></div>';
+          }
+        } catch (e) {
+          console.error(e);
+          document.getElementById("marketLoading").classList.add("d-none");
+          alert("Erreur lors de la recherche");
+        }
+      }
+      function renderResults(items) {
+        const container = document.getElementById("marketResults");
+        items.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "col-md-4 mb-4";
+          card.innerHTML = `
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <img src="${item.icon || "https://via.placeholder.com/64"}" style="width: 48px; height: 48px; object-fit: contain;" class="mr-3">
+                            <h5 class="card-title mb-0 text-truncate">${item.title}</h5>
+                        </div>
+                        <p class="card-text small text-muted" style="height: 60px; overflow: hidden;">${item.desc}</p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="badge badge-info">${item.author}</span>
+                            <span class="small"><i class="fas fa-download"></i> ${item.downloads}</span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-sm btn-outline-success btn-block" onclick="showInstallModal('${item.id}', '${item.title.replace(/'/g, "\\'")}')">Installer</button>
+                    </div>
+                </div>
+            `;
+          container.appendChild(card);
+        });
+      }
+      async function showInstallModal(id, title) {
+        currentProjectId = id;
+        document.getElementById("installTitle").innerText = title;
+        const status = document.getElementById("installStatus");
+        status.className = "alert d-none";
+        $("#installModal").modal("show");
+        const select = document.getElementById("serverSelect");
+        select.innerHTML = '<option value="">Chargement...</option>';
+        try {
+          const res = await fetch("/api/servers");
+          const data = await res.json();
+          select.innerHTML = "";
+          if (data.status === "success" && data.servers.length > 0) {
+            data.servers.forEach((s) => {
+              const opt = document.createElement("option");
+              opt.value = s.name;
+              opt.innerText = s.name;
+              select.appendChild(opt);
+            });
+          } else {
+            select.innerHTML = '<option value="">Aucun serveur trouvé</option>';
+          }
+        } catch (e) {
+          select.innerHTML =
+            '<option value="">Erreur chargement serveurs</option>';
+        }
+      }
+      document.getElementById("confirmInstallBtn").onclick = async function () {
+        const serverName = document.getElementById("serverSelect").value;
+        if (!serverName) return alert("Sélectionnez un serveur");
+        const btn = this;
+        btn.disabled = true;
+        btn.innerText = "Installation...";
+        try {
+          const res = await fetch("/api/market/install", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              project_id: currentProjectId,
+              server_name: serverName,
+            }),
+          });
+          const data = await res.json();
+          const status = document.getElementById("installStatus");
+          status.classList.remove("d-none");
+          if (data.status === "success") {
+            status.className = "alert alert-success";
+            status.innerText = "Installation réussie !";
+            setTimeout(() => $("#installModal").modal("hide"), 2000);
+          } else {
+            status.className = "alert alert-danger";
+            status.innerText = "Erreur : " + data.message;
+          }
+        } catch (e) {
+          alert("Erreur réseau");
+        } finally {
+          btn.disabled = false;
+        }
+      };
+      // placeholder variable for install
+      let currentProjectId = null;
+
+      /* Docker management helper */
+      function installDocker() {
+        if (confirm("Lancer l'installation automatique de Docker ?")) {
+          fetch("/api/system/install-docker", { method: "POST" })
+            .then((res) => res.json())
+            .then((data) => alert(data.message));
+        }
+      }
+      function pruneDocker() {
+        if (confirm("Supprimer toutes les images non utilisées ?")) {
+          alert("Commande envoyée");
+        }
+      }
+      function loadDocker() {
+        // fetch container list via API and populate table
+        fetch("/api/docker/containers")
+          .then((r) => r.json())
+          .then((data) => {
+            const tbody = document.querySelector("#docker-table tbody");
+            tbody.innerHTML = "";
+            if (data.containers && data.containers.length) {
+              data.containers.forEach((c) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `<td><strong>${c.name}</strong><br/><small class="text-muted">${c.id}</small></td>
+                                <td>${c.status_text}</td>
+                                <td>${c.image}</td>
+                                <td><span class="badge badge-${c.state == "running" ? "success" : "secondary"}">${c.state}</span></td>
+                                <td><a href="/server/${c.name}" class="btn btn-sm btn-primary">Gérer</a>
+                                    <button class="btn btn-sm btn-info" onclick="showLogs('${c.name}')">Logs</button></td>`;
+                tbody.appendChild(tr);
+              });
+              document.getElementById("docker-count").innerText =
+                data.containers.length;
+              document.getElementById("docker-content").style.display = "";
+              document.getElementById("docker-warning").style.display = "none";
+            } else {
+              document.getElementById("docker-warning").style.display = "";
+              document.getElementById("docker-content").style.display = "none";
+            }
+          })
+          .catch((e) => {
+            console.error("docker load error", e);
+            document.getElementById("docker-warning").style.display = "";
+          });
+      }
+
+      let swarmRefreshInterval = null;
+      async function loadSwarm() {
+        try {
+          // clear previous timer to avoid overlaps
+          if (swarmRefreshInterval) clearTimeout(swarmRefreshInterval);
+          const [statusRes, configRes] = await Promise.all([
+            fetch("/swarm/status"),
+            fetch("/swarm/config"),
+          ]);
+          const data = await statusRes.json();
+          document.getElementById("swarm-status-text").innerText = data.active
+            ? "Actif"
+            : "Inactif";
+          const list = document.getElementById("swarm-nodes-list");
+          const table = document.getElementById("swarm-node-table");
+          list.innerHTML = "";
+          table.innerHTML = "";
+          (data.nodes || []).forEach((node) => {
+            const li = document.createElement("li");
+            li.innerText = `${node.hostname} - ${node.role} (${node.status})`;
+            list.appendChild(li);
+            const tr = document.createElement("tr");
+            // determine possible role action
+            let actions = `<button class="btn btn-sm btn-info" onclick="showNodeDetails('${node.hostname}', ${JSON.stringify(node)})">Détails</button>`;
+            if (node.role && node.role.toLowerCase() === "worker") {
+              actions += ` <button class="btn btn-sm btn-success admin-only" onclick="promoteNode('${node.hostname}')">Promouvoir</button>`;
+            } else if (node.role && node.role.toLowerCase() === "manager") {
+              actions += ` <button class="btn btn-sm btn-warning admin-only" onclick="demoteNode('${node.hostname}')">Démotionner</button>`;
+            }
+            actions += ` <button class="btn btn-sm btn-danger admin-only" onclick="removeNode('${node.hostname}')">Supprimer</button>`;
+            tr.innerHTML = `<td>${node.hostname}</td><td>${node.role}</td><td>${node.status}</td><td>${node.cpu || "n/a"}/${node.ram || "n/a"}</td><td>${actions}</td>`;
+            table.appendChild(tr);
+          });
+          // reapply UI permissions in case new elements were added
+          if (typeof updateUserUI === "function") updateUserUI();
+          // populate config form
+          if (configRes.ok) {
+            const cfg = await configRes.json();
+            document.getElementById("swarmMode").value = cfg.mode || "local";
+            document.getElementById("swarmSSHHost").value = cfg.ssh_host || "";
+            document.getElementById("swarmSSHUser").value = cfg.ssh_user || "";
+            document.getElementById("swarmSSHKey").value =
+              cfg.ssh_key_path || "";
+            document.getElementById("swarmRegistry").value =
+              cfg.registry_domain || "";
+            document.getElementById("swarmNfsIp").value =
+              cfg.nfs_server_ip || "";
+            document.getElementById("swarmNfsPath").value = cfg.nfs_path || "";
+            toggleSwarmFields();
+          }
+        } catch (e) {
+          console.error("swarm load error", e);
+        }
+        // refresh again in 10 seconds
+        swarmRefreshInterval = setTimeout(loadSwarm, 10000);
+      }
+
+      function toggleSwarmFields() {
+        const mode = document.getElementById("swarmMode").value;
+        const sshFields = ["swarmSSHHost", "swarmSSHUser", "swarmSSHKey"];
+        sshFields.forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.disabled = mode !== "remote";
+        });
+      }
+
+      async function saveSwarmConfig() {
+        const cfg = {
+          mode: document.getElementById("swarmMode").value,
+          ssh_host: document.getElementById("swarmSSHHost").value,
+          ssh_user: document.getElementById("swarmSSHUser").value,
+          ssh_key_path: document.getElementById("swarmSSHKey").value,
+          registry_domain: document.getElementById("swarmRegistry").value,
+          nfs_server_ip: document.getElementById("swarmNfsIp").value,
+          nfs_path: document.getElementById("swarmNfsPath").value,
+        };
+
+        // simple validation
+        if (cfg.mode === "remote") {
+          if (!cfg.ssh_host || !cfg.ssh_user) {
+            showToast("error", "SSH host et user requis pour le mode remote");
+            return;
+          }
+        }
+
+        try {
+          const res = await fetch("/swarm/save_config", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": getCsrfToken(),
+            },
+            body: JSON.stringify(cfg),
+          });
+          const data = await res.json();
+          if (data.status === "success") {
+            showToast("success", data.message);
+            loadSwarm();
+          } else {
+            showToast("error", data.message || "Erreur sauvegarde");
+          }
+        } catch (e) {
+          console.error("saveSwarmConfig error", e);
+          showToast("error", "Erreur sauvegarde");
+        }
+      }
+
+      function showAddNodeModal() {
+        fetch("/swarm/nodes/token")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.status === "success") {
+              document.getElementById("join-command").innerText = data.command;
+              $("#addNodeModal").modal("show");
+            } else {
+              showToast(
+                "error",
+                data.message || "Impossible de récupérer le token",
+              );
+            }
+          })
+          .catch((e) => {
+            console.error("join token error", e);
+            showToast("error", "Erreur récupération token");
+          });
+      }
+
+      function copyJoinCommand() {
+        const txt = document.getElementById("join-command").innerText;
+        navigator.clipboard
+          .writeText(txt)
+          .then(() => {
+            showToast("success", "Commande copiée");
+          })
+          .catch(() => {
+            showToast("error", "Impossible de copier");
+          });
+      }
+
+      function showNodeDetails(hostname, data) {
+        const pre = document.getElementById("node-details-content");
+        if (pre) {
+          pre.textContent = JSON.stringify(data, null, 2);
+        }
+        $("#nodeDetailsModal").modal("show");
+      }
+
+      async function promoteNode(hostname) {
+        try {
+          const res = await fetch("/swarm/nodes/promote", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": getCsrfToken(),
+            },
+            body: JSON.stringify({ hostname }),
+          });
+          const d = await res.json();
+          if (d.status === "success") {
+            showToast("success", "Noeud promu");
+            loadSwarm();
+          } else {
+            showToast("error", d.message || "Erreur promotion");
+          }
+        } catch (e) {
+          console.error("promoteNode error", e);
+          showToast("error", "Erreur promotion");
+        }
+      }
+
+      async function demoteNode(hostname) {
+        try {
+          const res = await fetch("/swarm/nodes/demote", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": getCsrfToken(),
+            },
+            body: JSON.stringify({ hostname }),
+          });
+          const d = await res.json();
+          if (d.status === "success") {
+            showToast("success", "Noeud démotionné");
+            loadSwarm();
+          } else {
+            showToast("error", d.message || "Erreur démotion");
+          }
+        } catch (e) {
+          console.error("demoteNode error", e);
+          showToast("error", "Erreur démotion");
+        }
+      }
+
+      async function removeNode(hostname) {
+        if (!confirm(`Supprimer le noeud ${hostname} ?`)) return;
+        try {
+          const res = await fetch("/swarm/nodes/remove", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": getCsrfToken(),
+            },
+            body: JSON.stringify({ hostname }),
+          });
+          const d = await res.json();
+          if (d.status === "success") {
+            showToast("success", "Noeud supprimé");
+            loadSwarm();
+          } else {
+            showToast("error", d.message || "Erreur suppression");
+          }
+        } catch (e) {
+          console.error("removeNode error", e);
+          showToast("error", "Erreur suppression");
+        }
+      }
+
+      // ensure fields state is correct at startup
+      document.addEventListener("DOMContentLoaded", () => {
+        if (typeof toggleSwarmFields === "function") toggleSwarmFields();
+      });
+    </script>
+    <!-- Swarm Add Node Modal -->
+    <div class="modal fade" id="addNodeModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Ajouter un noeud au Swarm</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span>&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p>
+              Pour joindre un nouveau noeud, exécutez sur la machine cible :
+            </p>
+            <pre
+              id="join-command"
+              style="background: #f8f9fa; padding: 10px; border: 1px solid #ddd"
+            ></pre>
+            <button
+              class="btn btn-sm btn-outline-secondary"
+              onclick="copyJoinCommand()"
+            >
+              Copier la commande
+            </button>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-dismiss="modal"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Swarm Node Details Modal -->
+    <div class="modal fade" id="nodeDetailsModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Détails du noeud</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span>&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <pre
+              id="node-details-content"
+              style="background: #f0f0f0; padding: 10px"
+            ></pre>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-dismiss="modal"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
     <script src="/static/js/main.js"></script>
   </body>
 </html>

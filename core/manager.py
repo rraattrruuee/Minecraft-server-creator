@@ -77,12 +77,25 @@ from core.webhooks import WebhookManager
 
 class ServerManager:
     def __init__(self, base_dir="servers"):
+        # base_dir représente le dossier racine sous lequel seront créés
+        # des sous-dossiers par utilisateur. Exemple :
+        #   servers/alice/myserver
+        #   servers/bob/otherserver
         self.base_dir = os.path.abspath(base_dir)
-        self.servers_dir = self.base_dir  # Alias pour compatibilité
+        self.servers_dir = self.base_dir  # Alias pour compatibilité (legacy)
+        self.current_user: str | None = None
         self.procs = {}
-        self.log_files = {} 
+        self.log_files = {}
         self.java_dir = os.path.join(self.base_dir, "_java")
         self.webhook_mgr = WebhookManager()
+
+    def set_user(self, username: str | None):
+        """Indique au manager le nom d'utilisateur courant.
+
+        Lorsqu'un utilisateur normal (non admin) est connecté, le manager va
+        alors restreindre les opérations au sous-dossier qui porte son nom.
+        """
+        self.current_user = username
 
     def _get_required_java_version(self, mc_version):
         """Détermine la version Java requise selon la version Minecraft"""
@@ -264,47 +277,102 @@ class ServerManager:
         ]
 
     def _get_server_path(self, name):
-        """Retourne le chemin sécurisé du serveur"""
+        """Retourne le chemin sécurisé du serveur en tenant compte de la
+        structure utilisateur.
+
+        Le chemin peut se trouver dans :
+          base_dir/<user>/<name>           (utilisateur normal)
+          base_dir/<name>                 (legacy / admin root)
+          base_dir/<someuser>/<name>      (admin recherche globale)
+        """
         name = self._validate_name(name)
-        path = os.path.join(self.base_dir, name)
-        # Protection contre path traversal
-        if not os.path.abspath(path).startswith(self.base_dir):
+
+        # Première tentative : dossier de l'utilisateur courant
+        if self.current_user and self.current_user != "admin":
+            candidate = os.path.join(self.base_dir, self.current_user, name)
+            if os.path.exists(candidate):
+                path = candidate
+            else:
+                # si on est en cours de création, on utilisera ce chemin
+                path = candidate
+        else:
+            # admin ou pas d'utilisateur défini : chercher globalement
+            # vérifie d'abord à la racine
+            candidate = os.path.join(self.base_dir, name)
+            if os.path.exists(candidate):
+                path = candidate
+            else:
+                # rechercher dans tous les sous-dossiers
+                found = None
+                try:
+                    for u in os.listdir(self.base_dir):
+                        p = os.path.join(self.base_dir, u, name)
+                        if os.path.exists(p):
+                            found = p
+                            break
+                except Exception:
+                    pass
+                path = found if found else candidate
+
+        # Protection path traversal relative à base_dir
+        if not os.path.abspath(path).startswith(os.path.abspath(self.base_dir)):
             raise Exception("Chemin invalide")
         return path
 
     def list_servers(self, owner=None):
+        """Retourne la liste des noms de serveurs visibles pour *owner*.
+
+        Le stockage est désormais organisé par utilisateur : chaque dossier
+        `base_dir/<username>` contient ses serveurs. Un admin lit tous les
+        serveurs.
+        """
         if not os.path.exists(self.base_dir):
             return []
-        
+
         servers = []
-        for d in os.listdir(self.base_dir):
-            full_path = os.path.join(self.base_dir, d)
-            if os.path.isdir(full_path):
-                 # Check for server.jar OR owner file OR docker-compose.yml (Docker servers)
-                 # Update: manager_config.json is the source of truth now
-                 is_server = (
-                     os.path.exists(os.path.join(full_path, "server.jar")) or 
-                     os.path.exists(os.path.join(full_path, "manager_config.json")) or
-                     os.path.exists(os.path.join(full_path, "docker-compose.yml"))
-                 )
 
-                 if is_server:
-                    # Owner filter
-                    if owner and owner != "admin":
-                        # Check ownership in config
-                        config_path = os.path.join(full_path, "manager_config.json")
-                        try:
-                            if os.path.exists(config_path):
-                                with open(config_path, "r") as f:
-                                    conf = json.load(f)
-                                    if conf.get("owner") != owner:
-                                        continue # Skip if not owner
-                            else:
-                                continue # Legacy servers owned by nobody/admin? Skip for regular users
-                        except:
-                            continue
+        def inspect_dir(full_path, name):
+            is_server = (
+                os.path.exists(os.path.join(full_path, "server.jar")) or
+                os.path.exists(os.path.join(full_path, "manager_config.json")) or
+                os.path.exists(os.path.join(full_path, "docker-compose.yml"))
+            )
+            if not is_server:
+                return
+            # filtre propriétaire
+            if owner and owner != "admin":
+                config_path = os.path.join(full_path, "manager_config.json")
+                if os.path.exists(config_path):
+                    try:
+                        with open(config_path, "r") as f:
+                            conf = json.load(f)
+                            if conf.get("owner") != owner:
+                                return
+                    except:
+                        return
+                # if there's no config file we assume the directory structure
+                # (e.g. base_dir/owner/name) already guarantees correct owner
+            servers.append(name)
 
-                    servers.append(d)
+        # Scenario 1: utilisateur spécifique
+        if owner and owner != "admin":
+            base = os.path.join(self.base_dir, owner)
+            if os.path.isdir(base):
+                for d in os.listdir(base):
+                    inspect_dir(os.path.join(base, d), d)
+            return servers
+
+        # Scenario 2: admin ou sans filtrage -> parcourir base et ses premiers niveaux
+        for entry in os.listdir(self.base_dir):
+            full = os.path.join(self.base_dir, entry)
+            if os.path.isdir(full):
+                # peut-être un serveur à la racine
+                inspect_dir(full, entry)
+                # ou un dossier utilisateur
+                for sub in os.listdir(full):
+                    subfull = os.path.join(full, sub)
+                    if os.path.isdir(subfull):
+                        inspect_dir(subfull, sub)
         return servers
 
     def get_available_versions(self):
@@ -788,9 +856,24 @@ class ServerManager:
                     with open(config_path, "r", encoding="utf-8") as f:
                         raw = f.read()
                     logger.debug(f"get_server_config: raw content of {config_path}: {raw}")
-                    config = json.loads(raw)
+                    if not raw.strip():
+                        # empty file, rewrite default and avoid JSON error
+                        logger.warning(f"Empty config file for {name}, recreating default")
+                        config = {}
+                        with open(config_path, "w", encoding="utf-8") as f:
+                            json.dump(default_config, f, indent=2)
+                    else:
+                        config = json.loads(raw)
+                except json.JSONDecodeError as jde:
+                    logger.warning(f"Erreur parsing JSON {config_path}: {jde}; resetting to default")
+                    config = {}
+                    try:
+                        with open(config_path, "w", encoding="utf-8") as f:
+                            json.dump(default_config, f, indent=2)
+                    except Exception:
+                        pass
                 except Exception as e:
-                    logger.warning(f"Erreur lecture/parsing de {config_path}: {e}")
+                    logger.warning(f"Erreur lecture de {config_path}: {e}")
                     config = {}
 
                 # Auto-detect server type if missing
@@ -968,12 +1051,18 @@ class ServerManager:
 
     def create_server(self, name, version, ram_min="1G", ram_max="2G", cpu_limit=None, storage_limit=None, base_path=None, server_type="paper", loader_version=None, forge_version=None, owner="admin", port=None):
         """Crée un nouveau serveur Docker (ou réutilise un répertoire "stale")."""
-        # Utiliser le base_path personnalisé si fourni
+        # Utiliser le base_path personnalisé si fourni (ne bypass pas le schéma
+        # utilisateur). Le chemin final prend en compte le propriétaire.
         if base_path:
             server_base = os.path.abspath(base_path)
             os.makedirs(server_base, exist_ok=True)
         else:
-            server_base = self.base_dir
+            # le dossier parent doit être celui de l'owner
+            if owner and owner != "admin":
+                server_base = os.path.join(self.base_dir, owner)
+            else:
+                server_base = self.base_dir
+            os.makedirs(server_base, exist_ok=True)
         
         # Valider et déterminer le chemin du serveur
         name = self._validate_name(name)
@@ -1133,7 +1222,34 @@ class ServerManager:
         logger.info(f"Serveur {name} créé avec succès (Port: {port})")
 
     # Ancienne methode de download supprimee/remplacee par Docker qui gere tout
-    
+
+    def _ensure_docker_running(self):
+        """S'assure que le démon Docker est opérationnel.
+
+        Tente un simple `docker info` et, si cela échoue, essaie de lancer
+        le service via systemctl ou l'init script. Retourne True si le démon
+        est actif à la fin, False sinon.
+        """
+        try:
+            res = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+        # essayer de démarrer le service
+        for cmd in (["systemctl", "start", "docker"], ["service", "docker", "start"]):
+            try:
+                subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=15)
+            except Exception:
+                continue
+
+        # re-vérifier
+        try:
+            res = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=5)
+            return res.returncode == 0
+        except Exception:
+            return False
 
     def rename_server(self, old_name, new_name):
         """Renomme un serveur (Dossier + Conteneur + Config)"""
@@ -1221,15 +1337,32 @@ class ServerManager:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
     
+    def _try_start_docker(self):
+        """Tente de démarrer le daemon Docker si possible.
+
+        Retourne True si une tentative de démarrage a été effectuée (succès ou
+        non), False si l'opération n'est pas disponible/pas néccéssaire.
+        """
+        if platform.system().lower() != 'linux':
+            return False
+        logger.info("Tentative de démarrage automatique du daemon Docker...")
+        for cmd in (["systemctl", "start", "docker"], ["service", "docker", "start"]):
+            try:
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                logger.info("Commande '%s' exécutée", " ".join(cmd))
+                return True
+            except Exception as e:
+                logger.debug(f"Échec démarrage docker avec {cmd}: {e}")
+        return False
+
     def _run_compose(self, args, cwd=None, **kwargs):
         """Execute une commande Docker Compose en essayant
         d'abord `docker compose` puis, en cas d'erreur, la
         version legacy `docker-compose`.
 
-        Cette méthode renvoie un CompletedProcess ou lève
-        subprocess.CalledProcessError si les deux tentatives échouent.
+        Si l'on reçoit une erreur indiquant que le daemon est inacessible,
+        on tente de le démarrer et retente une fois la commande.
         """
-        # ordre d'essai : plugin natif puis binaire séparé
         commands = [
             ["docker", "compose"] + args,
             ["docker-compose"] + args,
@@ -1239,23 +1372,26 @@ class ServerManager:
             try:
                 return subprocess.run(cmd, cwd=cwd, **kwargs)
             except subprocess.CalledProcessError as e:
-                # si le démon est inacessible, on renvoie un message mieux
                 stderr = getattr(e, 'stderr', b'')
                 text = stderr.decode(errors='ignore') if isinstance(stderr, (bytes, str)) else str(stderr)
                 if 'Cannot connect to the Docker daemon' in text:
+                    # essayer de démarrer le daemon et tenter à nouveau
+                    started = self._try_start_docker()
+                    if started:
+                        try:
+                            return subprocess.run(cmd, cwd=cwd, **kwargs)
+                        except Exception:
+                            pass
                     raise Exception("Docker daemon inaccessible. "
                                     "Make sure /var/run/docker.sock is mounted or "
                                     "that the daemon is running") from e
-                # stocker l'exception et essayer le suivant
                 last_exc = e
                 continue
             except FileNotFoundError as e:
                 last_exc = e
                 continue
-        # aucune tentative n'a réussi
         if last_exc:
             raise last_exc
-        # fallback vide (normalement on ne passe jamais ici)
         return subprocess.CompletedProcess(commands[-1], 0)
 
     def start(self, name):
@@ -1830,7 +1966,7 @@ class ServerManager:
     
     # World management
     def list_worlds(self, server_name):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         if not os.path.exists(server_dir):
             return []
         
@@ -1854,7 +1990,7 @@ class ServerManager:
         return worlds
     
     def reset_world(self, server_name, world_name="world"):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         world_path = os.path.join(server_dir, world_name)
         
         if not os.path.exists(world_path):
@@ -1870,7 +2006,7 @@ class ServerManager:
         return True, f"World reset. Backup: {backup_name}"
     
     def export_world(self, server_name, world_name):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         world_path = os.path.join(server_dir, world_name)
         
         if not os.path.exists(world_path):
@@ -1893,7 +2029,7 @@ class ServerManager:
     def import_world(self, server_name, zip_file, world_name=None):
         import zipfile
         
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         if not os.path.exists(server_dir):
             return False, "Server not found"
         
@@ -1916,14 +2052,16 @@ class ServerManager:
     
     # Whitelist management
     def get_whitelist(self, server_name):
-        wl_path = os.path.join(self.servers_dir, server_name, "whitelist.json")
+        server_dir = self._get_server_path(server_name)
+        wl_path = os.path.join(server_dir, "whitelist.json")
         if not os.path.exists(wl_path):
             return []
         with open(wl_path, 'r') as f:
             return json.load(f)
     
     def add_to_whitelist(self, server_name, username, uuid=None):
-        wl_path = os.path.join(self.servers_dir, server_name, "whitelist.json")
+        server_dir = self._get_server_path(server_name)
+        wl_path = os.path.join(server_dir, "whitelist.json")
         whitelist = self.get_whitelist(server_name)
         
         # Check if already exists
@@ -1949,7 +2087,8 @@ class ServerManager:
         return True, "Added"
     
     def remove_from_whitelist(self, server_name, username):
-        wl_path = os.path.join(self.servers_dir, server_name, "whitelist.json")
+        server_dir = self._get_server_path(server_name)
+        wl_path = os.path.join(server_dir, "whitelist.json")
         whitelist = self.get_whitelist(server_name)
         
         new_list = [e for e in whitelist if e.get("name", "").lower() != username.lower()]
@@ -1963,7 +2102,7 @@ class ServerManager:
     
     # Disk usage
     def get_disk_usage(self, server_name):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         if not os.path.exists(server_dir):
             return None
         
@@ -2013,7 +2152,8 @@ class ServerManager:
     
     # Datapacks
     def list_datapacks(self, server_name, world_name="world"):
-        dp_path = os.path.join(self.servers_dir, server_name, world_name, "datapacks")
+        base_dir = self._get_server_path(server_name)
+        dp_path = os.path.join(base_dir, world_name, "datapacks")
         if not os.path.exists(dp_path):
             return []
         
@@ -2052,7 +2192,7 @@ class ServerManager:
     
 
     def add_datapack(self, server_name, file, world_name="world"):
-        dp_path = os.path.join(self.servers_dir, server_name, world_name, "datapacks")
+        dp_path = os.path.join(self._get_server_path(server_name), world_name, "datapacks")
         os.makedirs(dp_path, exist_ok=True)
         
         dest = os.path.join(dp_path, file.filename)
@@ -2060,7 +2200,7 @@ class ServerManager:
         return True
     
     def remove_datapack(self, server_name, pack_name, world_name="world"):
-        dp_path = os.path.join(self.servers_dir, server_name, world_name, "datapacks", pack_name)
+        dp_path = os.path.join(self._get_server_path(server_name), world_name, "datapacks", pack_name)
         if os.path.isdir(dp_path):
             shutil.rmtree(dp_path)
         elif os.path.isfile(dp_path):
@@ -2071,7 +2211,7 @@ class ServerManager:
     
     # File browser
     def browse_files(self, server_name, path=""):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         target = os.path.normpath(os.path.join(server_dir, path))
         
         # Security: ensure we stay inside server dir
@@ -2099,7 +2239,7 @@ class ServerManager:
         return items, None
     
     def read_file(self, server_name, path):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         target = os.path.normpath(os.path.join(server_dir, path))
         
         if not target.startswith(server_dir):
@@ -2119,7 +2259,7 @@ class ServerManager:
             return None, "Cannot read file"
     
     def write_file(self, server_name, path, content):
-        server_dir = os.path.join(self.servers_dir, server_name)
+        server_dir = self._get_server_path(server_name)
         target = os.path.normpath(os.path.join(server_dir, path))
         
         if not target.startswith(server_dir):

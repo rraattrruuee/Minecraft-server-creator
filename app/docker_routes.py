@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, session, abort
+from flask import Blueprint, redirect, render_template, request, jsonify, session, abort
 from core.auth import login_required, admin_required
 from core.docker_installer import is_docker_installed, install_docker_async
 import subprocess
@@ -12,44 +12,8 @@ logger = logging.getLogger(__name__)
 @app_docker.route('/docker-dashboard')
 @login_required
 def dashboard():
-    user = session.get("user", {})
-    role = user.get("role")
-    username = user.get("username")
-
-    installed = is_docker_installed()
-    containers = []
-    
-    if installed:
-        try:
-            # List MC containers with labels
-            # Filter by label com.mcpanel.server to only show managed servers
-            cmd = ["docker", "ps", "-a", "--filter", "label=com.mcpanel.server", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.State}}|{{.Label \"com.mcpanel.owner\"}}"]
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
-            
-            for line in res.stdout.strip().splitlines():
-                if not line: continue
-                parts = line.split("|")
-                # parts[5] is owner
-                c_id = parts[0]
-                c_name = parts[1].replace("mc-", "")
-                c_status = parts[2]
-                c_image = parts[3]
-                c_state = parts[4]
-                c_owner = parts[5] if len(parts) > 5 else "unknown"
-
-                # Security Filter: Admin sees all, User sees only theirs
-                if role == "admin" or c_owner == username:
-                    containers.append({
-                        "id": c_id,
-                        "name": c_name,
-                        "status_text": c_status,
-                        "image": c_image,
-                        "state": c_state,
-                        "owner": c_owner
-                    })
-        except: pass
-
-    return render_template('docker_dashboard.html', installed=installed, containers=containers)
+    # simply redirect into the SPA; data will be fetched client‑side if needed
+    return redirect("/?section=docker-dashboard")
 
 @app_docker.route('/api/docker/stats/<server_name>')
 @login_required
@@ -80,3 +44,39 @@ def stats(server_name):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app_docker.route('/api/docker/containers')
+@login_required
+
+def list_containers():
+    user = session.get("user", {})
+    role = user.get("role")
+    username = user.get("username")
+    containers = []
+    if is_docker_installed():
+        try:
+            cmd = ["docker", "ps", "-a", "--filter", "label=com.mcpanel.server", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.State}}|{{.Label \"com.mcpanel.owner\"}}"]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+            for line in res.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split("|")
+                c_id = parts[0]
+                c_name = parts[1].replace("mc-", "")
+                c_status = parts[2]
+                c_image = parts[3]
+                c_state = parts[4]
+                c_owner = parts[5] if len(parts) > 5 else "unknown"
+                if role == "admin" or c_owner == username:
+                    containers.append({
+                        "id": c_id,
+                        "name": c_name,
+                        "status_text": c_status,
+                        "image": c_image,
+                        "state": c_state,
+                        "owner": c_owner
+                    })
+        except Exception:
+            pass
+    return jsonify({"containers": containers})

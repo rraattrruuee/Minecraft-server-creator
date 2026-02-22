@@ -4,6 +4,7 @@
 // GLOBAL STATE
 // ================================
 let currentServer = null;
+let currentServerOwner = null; // username of server owner, used for owner-only UI
 
 // Ensure showSection is callable from inline onclicks even if the full script
 // hasn't finished initializing or if an earlier runtime error prevented
@@ -3238,6 +3239,21 @@ function updateUserUI() {
   document.querySelectorAll(".admin-only").forEach((el) => {
     el.style.display = currentUser.role === "admin" ? "" : "none";
   });
+
+  applyOwnershipUI();
+}
+
+function applyOwnershipUI() {
+  document.querySelectorAll(".owner-only").forEach((el) => {
+    if (
+      currentUser &&
+      (currentUser.role === "admin" || currentUser.username === currentServerOwner)
+    ) {
+      el.style.display = "";
+    } else {
+      el.style.display = "none";
+    }
+  });
 }
 
 async function logout() {
@@ -4122,6 +4138,9 @@ function selectServer(serverName) {
           Object.keys(cfgFresh || {}),
           cfgFresh,
         );
+        // record owner for permissions
+        currentServerOwner = cfgFresh.owner || null;
+        applyOwnershipUI();
         populateServerMetaUI(cfgFresh);
         // If the config lacks explicit server_type/version, try reading manager_config.json directly
         if (
@@ -4334,6 +4353,8 @@ async function updateStatus() {
     const restartBtn = document.getElementById("btn-restart");
 
     if (status.running) {
+      // set current server title in console
+      updateElement('console-title', currentServer);
       if (badge) badge.className = "status-badge online";
       if (statusText) statusText.textContent = "EN LIGNE";
       if (startBtn) startBtn.style.display = "none";
@@ -4357,9 +4378,8 @@ async function updateStatus() {
   } catch (error) {
     console.error("Erreur statut:", error);
   }
-}
-
-async function searchModsAdmin() {
+  // also update title even if offline
+  updateElement('console-title', currentServer || '');
   const query = document.getElementById("mods-search-input-panel")?.value;
   const container = document.getElementById("mods-results-container");
 
@@ -4380,7 +4400,7 @@ async function searchModsAdmin() {
       data.hits.forEach((mod) => {
         const row = document.createElement("div");
         row.className = "mod-row";
-        row.innerHTML = `<div class="mod-left"><img src="${mod.icon_url || "/static/img/default_icon.svg"}" style="width:48px;height:48px;border-radius:4px;margin-right:10px"></div><div class="mod-body"><strong>${escapeHtml(mod.name)}</strong><div class="muted">${escapeHtml(mod.slug)}</div></div><div class="mod-actions"><button class="btn-sm" onclick="installMod('${mod.slug}')">Installer</button></div>`;
+        row.innerHTML = `<div class="mod-left"><img src="${mod.icon_url || "/static/img/default_icon.svg"}" style="width:48px;height:48px;border-radius:4px;margin-right:10px;cursor:pointer" onclick="showModDetails('${mod.id || mod.slug}')"></div><div class="mod-body"><strong style="cursor:pointer" onclick="showModDetails('${mod.id || mod.slug}')">${escapeHtml(mod.name)}</strong><div class="muted">${escapeHtml(mod.slug)}</div></div><div class="mod-actions"><button class="btn-sm" onclick="installMod('${mod.slug}')">Installer</button></div>`;
         container.appendChild(row);
       });
     } else {
@@ -4600,7 +4620,10 @@ async function loadModsForCurrentServer(query) {
               .map(
                 (m) => `
                             <div class="installed-mod-row" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:4px;">
-                                <span style="font-family:monospace; font-size:0.9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%;">${escapeHtml(m.filename || m.name || String(m))}</span>
+                                <div style="display:flex; align-items:center; cursor:pointer" onclick="window.open('${m.url||"#"}','_blank')">
+                                  <img src="${m.icon_url||'/static/img/default_icon.svg'}" style="width:24px;height:24px;margin-right:8px;" />
+                                  <span style="font-family:monospace; font-size:0.9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${escapeHtml(m.filename || m.name || String(m))}</span>
+                                </div>
                                 <button class="btn-danger btn-sm" style="padding:2px 8px;" onclick="uninstallMod('${escapeHtmlAttr(m.filename || m.name || "")}')">
                                     <i class="fas fa-trash"></i>
                                 </button>
@@ -4677,6 +4700,37 @@ async function loadGlobalMods(query) {
   } catch (e) {
     console.error("Erreur loading global mods:", e);
     container.innerHTML = '<p class="text-error">Erreur</p>';
+  }
+}
+
+async function showModDetails(projectId) {
+  const modal = document.getElementById('modDetailsModal');
+  const titleEl = document.getElementById('modDetailsTitle');
+  const bodyEl = document.getElementById('modDetailsBody');
+  titleEl.innerText = '';
+  bodyEl.innerHTML = '<div class="loader-small"></div> Chargement...';
+  $(modal).modal('show');
+  try {
+    const res = await apiFetch(`/api/mods/details/${encodeURIComponent(projectId)}`);
+    const data = await res.json();
+    titleEl.innerText = data.name || projectId;
+    let html = '';
+    if (data.icon_url) {
+      html += `<img src="${data.icon_url}" style="width:64px;height:64px;float:right; margin:0 0 10px 10px;"/>`;
+    }
+    if (data.body) {
+      // naive markdown -> html (could use library)
+      html += `<div>${data.body.replace(/\n/g,'<br/>')}</div>`;
+    }
+    if (data.description) {
+      html += `<p>${data.description}</p>`;
+    }
+    if (data.url) {
+      html += `<p><a href="${data.url}" target="_blank">Voir sur Modrinth</a></p>`;
+    }
+    bodyEl.innerHTML = html || '<p>Pas d'informations disponibles.</p>';
+  } catch (e) {
+    bodyEl.innerHTML = `<p>Erreur: ${e}</p>`;
   }
 }
 
@@ -4874,6 +4928,30 @@ function closeInstallModModal() {
 // SERVER ACTIONS
 
 // ================================
+
+async function showLogs(serverName) {
+  // switch current server and load logs with permission check
+  currentServer = serverName;
+  updateUserUI();
+  try {
+    const cfgResp = await apiFetch(`/api/server/${serverName}/config`);
+    if (!cfgResp.ok) {
+      if (cfgResp.status === 403) {
+        showToast("error", "Vous n'avez pas le droit de voir ce serveur");
+        const logsDiv = document.getElementById('logs');
+        if (logsDiv) logsDiv.innerHTML = '<div class="log-empty">Accès refusé</div>';
+      }
+      return;
+    }
+  } catch (e) {
+    console.error('showLogs config check failed', e);
+    return;
+  }
+  // show the server detail section which contains the logs container
+  showSection('servers');
+  // maybe start streaming
+  if (typeof startLogStream === 'function') startLogStream();
+}
 
 async function serverAction(action) {
   if (!currentServer) return;
@@ -5079,6 +5157,14 @@ async function loadLogs() {
 
   try {
     const response = await apiFetch(`/api/server/${currentServer}/logs`);
+    if (!response.ok) {
+      if (response.status === 403) {
+        showToast("error", "Accès refusé aux logs de ce serveur");
+        const logsDiv = document.getElementById('logs');
+        if (logsDiv) logsDiv.innerHTML = '<div class="log-empty">Accès refusé</div>';
+      }
+      return;
+    }
 
     const data = await response.json();
 
@@ -6914,6 +7000,9 @@ async function loadConfig() {
   try {
     const response = await apiFetch(`/api/server/${currentServer}/config`);
     const config = await response.json();
+    // capture ownership
+    currentServerOwner = config.owner || null;
+    applyOwnershipUI();
     const grid = document.getElementById("config-grid");
     if (!grid) return;
 

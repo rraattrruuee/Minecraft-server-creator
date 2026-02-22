@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, session
+from flask import Blueprint, redirect, render_template, request, jsonify, session
 from core.auth import login_required, admin_required
 from core.swarm_deployer import SwarmDeployer
 from core.minecraft_swarm import MinecraftSwarmGenerator
@@ -21,6 +21,10 @@ def get_swarm_config():
         'si_swarm_path': '../si-swarm-deploy',
         'ssh_host': '',
         'ssh_user': '',
+        'ssh_key_path': '',
+        'registry_domain': '',
+        'nfs_server_ip': '',
+        'nfs_path': '',
         # ...
     }
 
@@ -33,25 +37,28 @@ def save_swarm_config(config):
 @login_required
 @admin_required
 def index():
-    config = get_swarm_config()
-    deployer = SwarmDeployer(config)
-    status = deployer.check_swarm_status()
-    # Read README from si-swarm-deploy if available
-    howto = ""
-    readme_path = os.path.join(config.get('si_swarm_path', '../si-swarm-deploy'), 'README.md')
-    if os.path.exists(readme_path):
-        with open(readme_path, 'r') as f:
-            howto = f.read()
-
-    return render_template('swarm.html', config=config, status=status, howto=howto)
+    # redirect into the SPA; frontend can request swarm API data when section activated
+    return redirect("/?section=swarm")
 
 @swarm_bp.route('/save_config', methods=['POST'])
 @login_required
 @admin_required
 def save_conf():
-    data = request.json
+    data = request.json or {}
+    # validation
+    if data.get('mode') == 'remote':
+        if not data.get('ssh_host') or not data.get('ssh_user'):
+            return jsonify({'status': 'error', 'message': 'SSH host et user requis pour mode remote'}), 400
     save_swarm_config(data)
     return jsonify({'status': 'success', 'message': 'Configuration sauvegardée'})
+
+
+@swarm_bp.route('/config', methods=['GET'])
+@login_required
+@admin_required
+def get_conf():
+    """Renvoie la configuration actuelle du Swarm"""
+    return jsonify(get_swarm_config())
 
 @swarm_bp.route('/deploy', methods=['POST'])
 @login_required
@@ -98,6 +105,54 @@ def get_join_token():
     command = f"docker swarm join --token {token} {manager_ip}:2377"
     
     return jsonify({'status': 'success', 'token': token, 'command': command})
+
+
+@swarm_bp.route('/nodes/remove', methods=['POST'])
+@login_required
+@admin_required
+def remove_node():
+    data = request.json or {}
+    hostname = data.get('hostname')
+    if not hostname:
+        return jsonify({'status': 'error', 'message': 'hostname manquant'}), 400
+    deployer = SwarmDeployer(get_swarm_config())
+    success, msg = deployer.remove_node(hostname)
+    if success:
+        return jsonify({'status': 'success', 'message': msg})
+    else:
+        return jsonify({'status': 'error', 'message': msg}), 500
+
+
+@swarm_bp.route('/nodes/promote', methods=['POST'])
+@login_required
+@admin_required
+def promote_node():
+    data = request.json or {}
+    hostname = data.get('hostname')
+    if not hostname:
+        return jsonify({'status': 'error', 'message': 'hostname manquant'}), 400
+    deployer = SwarmDeployer(get_swarm_config())
+    success, msg = deployer.promote_node(hostname)
+    if success:
+        return jsonify({'status': 'success', 'message': msg})
+    else:
+        return jsonify({'status': 'error', 'message': msg}), 500
+
+
+@swarm_bp.route('/nodes/demote', methods=['POST'])
+@login_required
+@admin_required
+def demote_node():
+    data = request.json or {}
+    hostname = data.get('hostname')
+    if not hostname:
+        return jsonify({'status': 'error', 'message': 'hostname manquant'}), 400
+    deployer = SwarmDeployer(get_swarm_config())
+    success, msg = deployer.demote_node(hostname)
+    if success:
+        return jsonify({'status': 'success', 'message': msg})
+    else:
+        return jsonify({'status': 'error', 'message': msg}), 500
 
 
 @swarm_bp.route('/generate_stack', methods=['POST'])

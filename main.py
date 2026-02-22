@@ -97,7 +97,8 @@ def metrics():
 @app.route('/marketplace')
 @login_required
 def marketplace_ui():
-    return render_template('marketplace.html')
+    # redirect into SPA
+    return redirect(url_for('index', section='marketplace'))
 
 @app.route('/api/market/search')
 @login_required
@@ -370,6 +371,13 @@ except Exception as e:
     job_mgr = None
 
 logger.info("[INFO] Demarrage MCPanel...")
+
+# essayer de démarrer Docker si le démon est arrêté
+try:
+    if srv_mgr:
+        srv_mgr._try_start_docker()
+except Exception as e:
+    logger.warning(f"[WARN] échec tentative de démarrage automatique de Docker: {e}")
 
 def check_java():
     try:
@@ -1612,6 +1620,13 @@ def status(name):
 @app.route("/api/server/<name>/logs")
 @login_required
 def logs(name):
+    # owner / admin check
+    cfg = srv_mgr.get_server_config(name)
+    owner = cfg.get("owner")
+    user = session.get("user", {}).get("username")
+    role = session.get("user", {}).get("role")
+    if role != "admin" and owner != user:
+        return jsonify({"error": "Forbidden"}), 403
     lines = request.args.get("lines", 100, type=int)
     filter_type = request.args.get("filter")
     search = request.args.get("search")
@@ -1621,6 +1636,12 @@ def logs(name):
 @app.route("/api/server/<name>/logs/files")
 @login_required
 def logs_files(name):
+    cfg = srv_mgr.get_server_config(name)
+    owner = cfg.get("owner")
+    user = session.get("user", {}).get("username")
+    role = session.get("user", {}).get("role")
+    if role != "admin" and owner != user:
+        return jsonify({"error": "Forbidden"}), 403
     return jsonify({"status": "success", "files": srv_mgr.get_logs_files(name)})
 
 
@@ -2092,6 +2113,14 @@ def upload_mod(name):
 @app.route("/api/server/<name>/config", methods=["GET", "POST"])
 @login_required
 def server_config(name):
+    # permission: owner or admin only
+    cfg = srv_mgr.get_server_config(name) or {}
+    owner = cfg.get("owner")
+    user = session.get("user", {}).get("username")
+    role = session.get("user", {}).get("role")
+    if role != "admin" and owner != user:
+        return jsonify({"error": "Forbidden"}), 403
+
     if request.method == "POST":
         # Merge incoming partial config with existing config to avoid overwriting meta
         incoming = request.json or {}
@@ -2703,6 +2732,12 @@ def api_install_docker():
 @login_required
 def console_stream(name):
     """Stream des logs en temps réel via SSE"""
+    cfg = srv_mgr.get_server_config(name)
+    owner = cfg.get("owner")
+    user = session.get("user", {}).get("username")
+    role = session.get("user", {}).get("role")
+    if role != "admin" and owner != user:
+        return jsonify({"error": "Forbidden"}), 403
     def generate():
         last_pos = 0
         while True:

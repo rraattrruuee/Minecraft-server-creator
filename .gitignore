@@ -58,6 +58,7 @@ htmlcov/
 *.bak
 *.tmp
 *.swp
+tests/
 
 # ====================================
 # SERVEURS MINECRAFT (GROS FICHIERS)
