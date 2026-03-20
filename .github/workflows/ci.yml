@@ -172,12 +172,15 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux/amd64
-            suffix: amd64
+            tag: amd64
           - os: self-hosted
             platform: linux/arm64
-            suffix: arm64
+            tag: arm64
     runs-on: ${{ matrix.os }}
     needs: build
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -192,16 +195,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push by digest
+      - name: Build and push by architecture
         uses: docker/build-push-action@v5
         with:
           context: .
+          push: true
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/mcpanel,push-by-digest=true,name-canonical=true,push=true
+          tags: ghcr.io/${{ github.repository_owner }}/mcpanel:${{ matrix.tag }}
+          # Utilisation du cache pour accélérer les builds futurs
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   create-manifest:
     needs: docker-build
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -216,14 +225,32 @@ jobs:
       - name: Create manifest list and push
         run: |
           docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/mcpanel:latest \
-            ghcr.io/${{ github.repository_owner }}/mcpanel:latest-amd64 \
-            ghcr.io/${{ github.repository_owner }}/mcpanel:latest-arm64
+            ghcr.io/${{ github.repository_owner }}/mcpanel:amd64 \
+            ghcr.io/${{ github.repository_owner }}/mcpanel:arm64
+
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/mcpanel:${{ github.sha }} \
+            ghcr.io/${{ github.repository_owner }}/mcpanel:amd64 \
+            ghcr.io/${{ github.repository_owner }}/mcpanel:arm64
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        env:
+          # AJOUT ICI : Permet à Trivy de s'authentifier pour scanner l'image
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: "ghcr.io/${{ github.repository_owner }}/mcpanel:latest"
+          format: "table"
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
 
   publish:
-    needs: [build, docker-build]
+    # Changement ici : on attend que le manifest soit créé
+    needs: [build, create-manifest]
     runs-on: ubuntu-latest
     if: always()
-
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
