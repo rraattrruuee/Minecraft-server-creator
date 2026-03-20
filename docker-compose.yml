@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   mcpanel:
-    build: .
+    image: ghcr.io/rraattrruuee/mcpanel:latest
     container_name: mcpanel_pro
     restart: unless-stopped
     ports:
